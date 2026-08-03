@@ -18,6 +18,7 @@ single GraphQL endpoint.
 - [npm scripts](#npm-scripts)
 - [Configuration](#configuration)
 - [Project structure](#project-structure)
+- [Data model](#data-model)
 - [Error handling strategy](#error-handling-strategy)
 - [Logging strategy](#logging-strategy)
 - [Upstream integration (NHTSA vPIC)](#upstream-integration-nhtsa-vpic)
@@ -153,28 +154,114 @@ domain declares; presentation exposes it all over the wire.
 
 ```
 src/
-├─ config/              # Zod env schema + structured AppConfig (the only reader of process.env)
-├─ domain/              # entities, value objects, repository ports        (next branch)
+├─ types/               # every interface and type alias, one file per context
+│  ├─ app.ts            #   CreateAppOptions
+│  ├─ config.ts         #   AppConfig, Env
+│  ├─ error.ts          #   ErrorCode, AppErrorOptions
+│  ├─ health.ts         #   HealthCheck, HealthCheckResult, HealthRouterOptions
+│  ├─ http.ts           #   FetchLike, HttpClientOptions, HttpServerHandle
+│  ├─ nhtsa.ts          #   NhtsaMake, NhtsaVehicleType, NhtsaResult
+│  └─ vehicle.ts        #   Make, VehicleType, CatalogInput/Result/Stats
+├─ utils/               # pure helpers, one file per context
+│  ├─ array.ts          #   toArray
+│  ├─ config.ts         #   parseCorsOrigins
+│  ├─ error.ts          #   isAppError, toError
+│  ├─ http.ts           #   sleep, backoffDelay, isRetryableStatus, parseRetryAfter
+│  ├─ sort.ts           #   compareIds
+│  ├─ text.ts           #   normalizeText
+│  └─ vehicle.ts        #   collectVehicleTypes
+├─ config/              # Zod env schema + config loader (only reader of process.env)
+├─ domain/vehicles/     # catalogue transformation and validation schemas
 ├─ application/         # use cases: ingestion pipeline orchestration      (next branch)
-├─ infrastructure/      # vPIC HTTP client, XML parsing, MongoDB adapters  (next branch)
+├─ infrastructure/
+│  ├─ http/             #   resilient outbound HTTP client
+│  ├─ nhtsa/            #   vPIC adapter + upstream schemas
+│  └─ xml/              #   XML parsing
 ├─ presentation/
 │  └─ http/
-│     ├─ app.ts         # Express app factory (fully injected, no I/O on import)
-│     ├─ middleware/    # request logger, error handler
-│     └─ routes/        # health probes
-├─ shared/              # logger, error taxonomy, version
+│     ├─ app.ts         #   Express app factory (fully injected, no I/O on import)
+│     ├─ middleware/    #   request logger, error handler
+│     └─ routes/        #   health probes
+├─ shared/              # logger, error classes, version
 ├─ server.ts            # socket binding + graceful close
 └─ main.ts              # composition root: config → logger → app → lifecycle
-tests/                  # integration tests (unit tests live beside their source)
+tests/                  # integration tests and fixtures
 ```
 
-Two conventions worth knowing:
+Conventions worth knowing:
 
+- **Types and helpers are centralised, split by context.** `types/` holds
+  interfaces and type aliases only; `utils/` holds pure functions. Runtime
+  classes stay with their module (error classes in `shared/errors.ts`, `HttpClient`
+  in `infrastructure/http/`), because they are behaviour, not shape.
 - **No side effects on import.** Modules export factories (`createApp`,
   `createLogger`, `startHttpServer`); only `main.ts` actually wires and starts
   anything. That is what lets the integration tests mount the app in-process.
-- **Unit tests live next to their subject** (`src/config/config.test.ts`) while
+- **Unit tests live next to their subject** (`src/utils/sort.test.ts`) while
   cross-layer tests live in `tests/`.
+- **No barrel files.** Imports name the exact module, so a reader can see where
+  a symbol comes from and the bundler never pulls in a whole folder.
+
+## Data model
+
+One aggregate: a **Make**, owning its **VehicleType**s. Defined in
+[`src/domain/vehicles/vehicle.ts`](src/domain/vehicles/vehicle.ts).
+
+| Field                     | Type            | Notes                                             |
+| ------------------------- | --------------- | ------------------------------------------------- |
+| `makeId`                  | `string`        | vPIC `Make_ID`. Unique; the natural key.          |
+| `makeName`                | `string`        | vPIC `Make_Name`, whitespace-normalised.          |
+| `vehicleTypes`            | `VehicleType[]` | Possibly empty. Unique by `typeId` within a make. |
+| `vehicleTypes[].typeId`   | `string`        | vPIC `VehicleTypeId`.                             |
+| `vehicleTypes[].typeName` | `string`        | vPIC `VehicleTypeName`, whitespace-normalised.    |
+
+Serialised, that is exactly the contract:
+
+```json
+[
+  {
+    "makeId": "440",
+    "makeName": "ASTON MARTIN",
+    "vehicleTypes": [
+      { "typeId": "2", "typeName": "Passenger Car" },
+      { "typeId": "7", "typeName": "Multipurpose Passenger Vehicle (MPV)" }
+    ]
+  }
+]
+```
+
+**Ids are strings, deliberately.** They are opaque keys we never do arithmetic
+on, and `"0440"` must not become `440`. Types are embedded rather than
+normalised into their own collection because they are always read with their
+make, there are only a couple of dozen distinct ones, and a single document read
+beats a join for the one query this service serves.
+
+### Transformation rules
+
+[`buildVehicleCatalog`](src/domain/vehicles/vehicle-catalog.ts) combines makes
+with their types. It is pure and synchronous — no I/O, no clock, no config —
+which is what lets the whole transformation be tested with object literals.
+
+| Rule               | Behaviour                                                |
+| ------------------ | -------------------------------------------------------- |
+| Make with no types | Kept, with `vehicleTypes: []`                            |
+| Duplicate `makeId` | First wins, rest counted as `duplicateMakes`             |
+| Duplicate `typeId` | First wins, per make                                     |
+| Invalid record     | Skipped and counted, never thrown on                     |
+| Names              | Trimmed, internal whitespace collapsed; casing untouched |
+| Ordering           | Makes and types sorted by id, numerically                |
+
+Two of those carry real weight. **Ordering is numeric**, so make `99` precedes
+make `1000`; deterministic output keeps upserts idempotent and makes a diff
+between two runs meaningful. And **a run where every make fails validation
+throws** rather than returning an empty catalogue — one bad row is noise, all of
+them means the upstream contract changed, and an empty result would look like a
+successful ingestion and wipe stored data.
+
+Every run returns a `stats` block (`makesIn`, `makesOut`, `invalidMakes`,
+`duplicateMakes`, `makesWithoutVehicleTypes`, `vehicleTypesOut`,
+`invalidVehicleTypes`, `duplicateVehicleTypes`) so ingestion can report
+"11,998 of 12,312" instead of losing the difference silently.
 
 ## Error handling strategy
 

@@ -1,18 +1,10 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import type { AppConfig } from '../../config/index.js';
-import type { Logger } from '../../shared/logger.js';
+import type { CreateAppOptions } from '../../types/app.js';
 import { createRequestLogger } from './middleware/request-logger.js';
 import { createErrorHandler, notFoundHandler } from './middleware/error-handler.js';
-import { createHealthRouter, type HealthCheck } from './routes/health.route.js';
-
-export interface CreateAppOptions {
-  readonly config: AppConfig;
-  readonly logger: Logger;
-  readonly version: string;
-  readonly healthChecks?: readonly HealthCheck[];
-}
+import { createHealthRouter } from './routes/health.route.js';
 
 export const createApp = (options: CreateAppOptions): Express => {
   const { config, logger, version } = options;

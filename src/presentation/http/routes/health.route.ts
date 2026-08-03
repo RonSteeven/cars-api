@@ -1,21 +1,13 @@
 import { Router } from 'express';
+import type { HealthRouterOptions } from '../../../types/health.js';
 
-export interface HealthCheckResult {
-  readonly ok: boolean;
-  readonly detail?: string;
-}
-
-export interface HealthCheck {
-  readonly name: string;
-  check(): Promise<HealthCheckResult>;
-}
-
-export interface HealthRouterOptions {
-  readonly version: string;
-  readonly startedAt: number;
-  readonly checks?: readonly HealthCheck[];
-}
-
+/**
+ * Two distinct probes, because orchestrators treat them differently:
+ *  - `GET /health/live`  the process is up. Never touches dependencies, so a
+ *                        flaky database cannot trigger a pod restart loop.
+ *  - `GET /health/ready` the process can serve traffic. Runs every registered
+ *                        check and answers 503 if any of them is down.
+ */
 export const createHealthRouter = (options: HealthRouterOptions): Router => {
   const router = Router();
   const checks = options.checks ?? [];

@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
-import { AppError, NotFoundError, isAppError, toError } from '../../../shared/errors.js';
+import { AppError, NotFoundError } from '../../../shared/errors.js';
+import { isAppError, toError } from '../../../utils/error.js';
 import type { Logger } from '../../../shared/logger.js';
 
 interface ErrorBody {

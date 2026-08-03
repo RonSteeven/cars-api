@@ -5,7 +5,6 @@ const xmlScalar = z
   .transform((value) => String(value).trim())
   .pipe(z.string().min(1));
 
-
 const resultsContainer = z.unknown().optional();
 
 // `GET /getallmakes?format=XML`

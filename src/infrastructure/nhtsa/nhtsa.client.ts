@@ -1,8 +1,15 @@
 import type { ZodType } from 'zod';
 import { UpstreamBadResponseError } from '../../shared/errors.js';
 import type { Logger } from '../../shared/logger.js';
+import type {
+  NhtsaClientOptions,
+  NhtsaMake,
+  NhtsaResult,
+  NhtsaVehicleType,
+} from '../../types/nhtsa.js';
 import type { HttpClient } from '../http/http-client.js';
-import { parseXml, toArray } from '../xml/xml-parser.js';
+import { toArray } from '../../utils/array.js';
+import { parseXml } from '../xml/xml-parser.js';
 import {
   allMakesResponseSchema,
   makeRecordSchema,
@@ -10,28 +17,21 @@ import {
   vehicleTypesResponseSchema,
 } from './nhtsa.schemas.js';
 
-/** A vehicle make as this service models it, decoupled from vPIC's field names. */
-export interface NhtsaMake {
-  readonly makeId: string;
-  readonly makeName: string;
-}
-
-/** A vehicle type as this service models it. */
-export interface NhtsaVehicleType {
-  readonly typeId: string;
-  readonly typeName: string;
-}
-
-export interface NhtsaResult<T> {
-  readonly records: T[];
-  readonly skipped: number;
-}
-
-export interface NhtsaClientOptions {
-  readonly http: HttpClient;
-  readonly logger: Logger;
-}
-
+/**
+ * Adapter over the NHTSA vPIC API.
+ *
+ * This is the anti-corruption layer: it owns the URLs, the XML, vPIC's
+ * `Make_ID`-style naming and every way the upstream can disappoint us. Callers
+ * receive plain, validated objects in our own vocabulary and never learn that
+ * XML was involved.
+ *
+ * Failure policy is split on purpose:
+ *  - a broken *envelope* (not XML at all, no `Response`, no `Results`) throws,
+ *    because that means the contract changed and continuing would fabricate an
+ *    empty catalogue,
+ *  - a broken *record* inside an otherwise valid envelope is logged and skipped,
+ *    because one malformed row out of twelve thousand should not abort a run.
+ */
 export class NhtsaClient {
   private readonly http: HttpClient;
   private readonly logger: Logger;
@@ -95,6 +95,14 @@ export class NhtsaClient {
     return envelope.data.Response.Results;
   }
 
+  /**
+   * Validate each repeated element, mapping the good ones and counting the rest.
+   *
+   * `Results` is a container, not the list itself: the repeated records sit
+   * under a named child (`AllVehicleMakes`, `VehicleTypesForMakeIds`). When the
+   * container is absent or empty — `<Results />` for an unknown make — that
+   * child is simply missing and the batch is empty.
+   */
   private mapRecords<Raw, Mapped>(
     results: unknown,
     elementName: string,

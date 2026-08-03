@@ -6,11 +6,12 @@ single GraphQL endpoint.
 
 [![CI](https://github.com/RonSteeven/cars-api/actions/workflows/ci.yml/badge.svg)](https://github.com/RonSteeven/cars-api/actions/workflows/ci.yml)
 
-> **Status:** feature complete and covered end to end. XML ingestion,
-> transformation, MongoDB persistence and the GraphQL endpoint all work, 275 tests
-> run the whole chain against a real database, and every push is linted, typed,
-> tested and built as a container image in [CI](#continuous-integration).
-> Remaining work is expanded API documentation — see [Roadmap](#roadmap).
+> **Status:** complete — all nine [roadmap](#roadmap) branches have shipped. XML
+> ingestion, transformation, MongoDB persistence and the GraphQL endpoint all work
+> end to end, 276 tests run the whole chain against a real database, every push is
+> linted, typed, tested and built as a container image in
+> [CI](#continuous-integration), and the
+> [schema reference](schema.graphql) is generated from the schema itself.
 
 ---
 
@@ -145,6 +146,7 @@ reaches Node and the graceful shutdown path actually runs.
 | `npm start`             | Run the compiled server from `dist/`                |
 | `npm run ingest`        | One-shot ingestion pass, then exit                  |
 | `npm run ingest:prod`   | Same, from the compiled `dist/`                     |
+| `npm run schema:print`  | Regenerate [`schema.graphql`](schema.graphql)       |
 | `npm run typecheck`     | `tsc --noEmit` across sources and tests             |
 | `npm run lint`          | ESLint (type-aware rules)                           |
 | `npm run lint:fix`      | ESLint with `--fix`                                 |
@@ -213,42 +215,102 @@ src/
 │  ├─ app.ts            #   CreateAppOptions
 │  ├─ config.ts         #   AppConfig, Env
 │  ├─ error.ts          #   ErrorCode, AppErrorOptions
+│  ├─ graphql.ts        #   GraphQLContext, resolver args, MakeConnection
 │  ├─ health.ts         #   HealthCheck, HealthCheckResult, HealthRouterOptions
 │  ├─ http.ts           #   FetchLike, HttpClientOptions, HttpServerHandle
+│  ├─ ingestion.ts      #   VehicleCatalogSource, IngestionReport
 │  ├─ nhtsa.ts          #   NhtsaMake, NhtsaVehicleType, NhtsaResult
+│  ├─ persistence.ts    #   MakeRepository port, MakeDocument, MakeQuery
 │  └─ vehicle.ts        #   Make, VehicleType, CatalogInput/Result/Stats
 ├─ utils/               # pure helpers, one file per context
 │  ├─ array.ts          #   toArray
-│  ├─ config.ts         #   parseCorsOrigins
-│  ├─ error.ts          #   isAppError, toError
+│  ├─ chunk.ts          #   chunk
+│  ├─ concurrency.ts    #   mapWithConcurrency
 │  ├─ http.ts           #   sleep, backoffDelay, isRetryableStatus, parseRetryAfter
+│  ├─ promise.ts        #   settleWithin
 │  ├─ sort.ts           #   compareIds
-│  ├─ text.ts           #   normalizeText
-│  └─ vehicle.ts        #   collectVehicleTypes
+│  └─ text.ts           #   normalizeText, escapeRegExp
 ├─ config/              # Zod env schema + config loader (only reader of process.env)
 ├─ domain/vehicles/     # catalogue transformation and validation schemas
-├─ application/         # use cases: ingestion pipeline orchestration      (next branch)
+├─ application/ingestion/  # the use case: fetch → transform → persist → prune
 ├─ infrastructure/
 │  ├─ http/             #   resilient outbound HTTP client
 │  ├─ nhtsa/            #   vPIC adapter + upstream schemas
+│  ├─ persistence/mongo/#   MakeRepository implementation, mapper, connection
 │  └─ xml/              #   XML parsing
 ├─ presentation/
+│  ├─ graphql/          #   SDL, resolvers, Apollo handler
 │  └─ http/
 │     ├─ app.ts         #   Express app factory (fully injected, no I/O on import)
 │     ├─ middleware/    #   request logger, error handler
 │     └─ routes/        #   health probes
 ├─ shared/              # logger, error classes, version
+├─ cli/ingest.ts        # one-shot ingestion command
 ├─ server.ts            # socket binding + graceful close
 └─ main.ts              # composition root: config → logger → app → lifecycle
-tests/                  # integration tests and fixtures
+scripts/print-schema.ts # emits schema.graphql
+tests/
+├─ e2e/                 # the whole chain, only NHTSA substituted
+├─ graphql/, http/, persistence/   # one real dependency at a time
+├─ helpers/             # vPIC stub, Mongo harness, in-memory repository
+└─ fixtures/            # real vPIC XML payloads
+```
+
+### How the layers depend on each other
+
+Every arrow points inward or at a port. Nothing in the domain or the application
+layer names Express, Apollo, MongoDB or XML, which is what lets the ingestion
+pipeline run against an in-memory repository and the GraphQL API be tested
+without a database.
+
+```mermaid
+flowchart TB
+    subgraph P["presentation/"]
+        R["graphql/ resolvers"]
+        H["http/ app + health"]
+    end
+
+    subgraph A["application/"]
+        I["ingestVehicleCatalog"]
+    end
+
+    subgraph D["domain/"]
+        C["buildVehicleCatalog<br/>Zod schemas"]
+    end
+
+    subgraph T["ports, declared in types/"]
+        MR["MakeRepository"]
+        VS["VehicleCatalogSource"]
+    end
+
+    subgraph N["infrastructure/"]
+        MG["MongoMakeRepository"]
+        NH["NhtsaClient → HttpClient → xmlParser"]
+    end
+
+    R --> MR
+    I --> C
+    I --> MR
+    I --> VS
+    MG -. implements .-> MR
+    NH -. satisfies .-> VS
+
+    M["main.ts / cli — the only place that picks the implementations"]
+    M --> P
+    M --> A
+    M --> N
 ```
 
 Conventions worth knowing:
 
-- **Types and helpers are centralised, split by context.** `types/` holds
-  interfaces and type aliases only; `utils/` holds pure functions. Runtime
-  classes stay with their module (error classes in `shared/errors.ts`, `HttpClient`
-  in `infrastructure/http/`), because they are behaviour, not shape.
+- **Types are centralised, split by context.** `types/` holds interfaces and type
+  aliases only. Runtime classes stay with their module (error classes in
+  `shared/errors.ts`, `HttpClient` in `infrastructure/http/`), because they are
+  behaviour, not shape.
+- **A helper with one caller lives with that caller.** `utils/` is for genuinely
+  reusable pure functions; a single-use helper in a shared folder is indirection,
+  not reuse, so validation of a make's vehicle types sits inside the catalogue
+  aggregate and CORS parsing sits inside the config loader.
 - **No side effects on import.** Modules export factories (`createApp`,
   `createLogger`, `startHttpServer`); only `main.ts` actually wires and starts
   anything. That is what lets the integration tests mount the app in-process.
@@ -259,8 +321,10 @@ Conventions worth knowing:
 
 ## Data model
 
-One aggregate: a **Make**, owning its **VehicleType**s. Defined in
-[`src/domain/vehicles/vehicle.ts`](src/domain/vehicles/vehicle.ts).
+One aggregate: a **Make**, owning its **VehicleType**s. The shapes are declared in
+[`src/types/vehicle.ts`](src/types/vehicle.ts) and validated at runtime by the Zod
+schemas in
+[`src/domain/vehicles/vehicle.schemas.ts`](src/domain/vehicles/vehicle.schemas.ts).
 
 | Field                     | Type            | Notes                                             |
 | ------------------------- | --------------- | ------------------------------------------------- |
@@ -392,45 +456,61 @@ non-zero rather than accepting traffic it cannot serve. Readiness runs a real
 ## GraphQL API
 
 A **single endpoint** at `POST /graphql` (path configurable via `GRAPHQL_PATH`),
-served by Apollo Server 5. The schema lives in
-[`schema.ts`](src/presentation/graphql/schema.ts) as SDL with a description on
-every type, field and argument — so introspection _is_ the API reference.
+served by Apollo Server 5. The schema is authored as SDL in
+[`schema.ts`](src/presentation/graphql/schema.ts) with a description on every type,
+field and argument — so introspection _is_ the API reference.
 
 Outside production the Apollo sandbox is available in a browser at
 <http://localhost:4000/graphql>.
 
-### Schema
+### Schema reference
 
-```graphql
-type VehicleType {
-  typeId: ID! # NHTSA type id, e.g. "2". Opaque, never numeric.
-  typeName: String! # e.g. "Passenger Car"
-}
+[**`schema.graphql`**](schema.graphql) is the full annotated schema, generated from
+the SDL above and committed so clients, codegen and editors can read it without
+running the server:
 
-type Make {
-  makeId: ID! # NHTSA make id, e.g. "440"
-  makeName: String! # e.g. "ASTON MARTIN"
-  vehicleTypes: [VehicleType!]! # embedded; may be empty, never null
-}
+```bash
+npm run schema:print   # regenerate after changing the schema
+```
 
-type MakeConnection {
-  items: [Make!]! # this page, ordered by name (case-insensitive)
-  totalCount: Int! # matches ignoring pagination; resolved lazily
-  limit: Int!
-  offset: Int!
-  hasMore: Boolean!
-}
+A test fails if the committed file drifts from the live schema, because a stale
+API reference is worse than none — it gets believed. The three entry points:
 
-input MakeFilter {
-  search: String # case-insensitive substring, matched literally
-  vehicleTypeId: ID # only makes producing this type
-}
+| Query          | Arguments                                                  | Returns                 |
+| -------------- | ---------------------------------------------------------- | ----------------------- |
+| `makes`        | `filter: MakeFilter`, `limit: Int = 50`, `offset: Int = 0` | `MakeConnection!`       |
+| `make`         | `makeId: ID!`                                              | `Make` (null if absent) |
+| `vehicleTypes` | —                                                          | `[VehicleType!]!`       |
 
-type Query {
-  makes(filter: MakeFilter, limit: Int = 50, offset: Int = 0): MakeConnection!
-  make(makeId: ID!): Make
-  vehicleTypes: [VehicleType!]!
-}
+`MakeFilter` narrows a listing by `search` (case-insensitive substring, matched
+literally) and `vehicleTypeId`; both are index-backed. `MakeConnection` carries
+`items`, `totalCount`, `limit`, `offset` and `hasMore`.
+
+### What a query actually does
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant E as Express (helmet, cors, request log)
+    participant A as Apollo
+    participant R as Resolvers
+    participant P as MakeRepository
+    participant M as MongoDB
+
+    C->>E: POST /graphql
+    E->>A: request + per-request logger
+    A->>R: makes(filter, limit, offset)
+    R->>P: findMany({ ...filter, limit: limit + 1, offset })
+    Note over R,P: one extra row answers hasMore without a count
+    P->>M: find + collation, index-backed sort
+    M-->>P: documents
+    P-->>R: Make[]
+    opt client selected totalCount
+        R->>P: count(query)
+        P->>M: countDocuments
+    end
+    R-->>A: items trimmed to limit, hasMore, totalCount
+    A-->>C: 200 with data (or formatted error)
 ```
 
 ### Example queries
@@ -843,7 +923,7 @@ another and the whole thing finishes in parallel:
 | Job                     | What it proves                                      | Artifact      |
 | ----------------------- | --------------------------------------------------- | ------------- |
 | **Lint, format, types** | ESLint, Prettier and `tsc --noEmit` are clean       | —             |
-| **Tests (MongoDB 8)**   | 275 tests against a real database, with coverage    | `coverage/`   |
+| **Tests (MongoDB 8)**   | 276 tests against a real database, with coverage    | `coverage/`   |
 | **Build dist**          | `tsconfig.build.json` emits both entrypoints        | `dist/`       |
 | **Docker image**        | the shipped image boots, reaches MongoDB and serves | image tarball |
 
@@ -886,5 +966,5 @@ to deploy it.
 | 5   | `feat/ingestion-pipeline`    | Ingestion with bounded concurrency ✅                            |
 | 6   | `feat/graphql-api`           | Single GraphQL endpoint ✅                                       |
 | 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL ✅                  |
-| 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts ← **you are here**    |
-| 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference                |
+| 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts ✅                    |
+| 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference ✅             |

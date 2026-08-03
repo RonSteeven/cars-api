@@ -7,7 +7,7 @@ import type {
   MakeRepository,
   UpsertResult,
 } from '../../../types/persistence.js';
-import type { Make } from '../../../types/vehicle.js';
+import type { Make, VehicleType } from '../../../types/vehicle.js';
 import { chunk } from '../../../utils/chunk.js';
 import { buildFilter, toDocument, toDomain } from './make.mapper.js';
 
@@ -104,6 +104,33 @@ export class MongoMakeRepository implements MakeRepository {
     return this.guard('count', async () =>
       this.collection.countDocuments(buildFilter(query), { collation: CASE_INSENSITIVE }),
     );
+  }
+
+  /**
+   * Distinct vehicle types across the catalogue.
+   *
+   * An aggregation rather than `distinct()`, because we need the id *and* the
+   * name as a pair — `distinct('vehicleTypes')` would return whole subdocuments
+   * and leave the de-duplication to us. `$unwind` + `$group` is covered by the
+   * multikey index on `vehicleTypes.typeId`.
+   */
+  async listVehicleTypes(): Promise<VehicleType[]> {
+    return this.guard('listVehicleTypes', async () => {
+      const rows = await this.collection
+        .aggregate<{ _id: string; typeName: string }>([
+          { $unwind: '$vehicleTypes' },
+          {
+            $group: {
+              _id: '$vehicleTypes.typeId',
+              typeName: { $first: '$vehicleTypes.typeName' },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ])
+        .toArray();
+
+      return rows.map((row) => ({ typeId: row._id, typeName: row.typeName }));
+    });
   }
 
   /** Single place where a driver error becomes a PersistenceError. */

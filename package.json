@@ -13,6 +13,8 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
+    "ingest": "tsx src/cli/ingest.ts",
+    "ingest:prod": "node dist/cli/ingest.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -24,10 +26,13 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@apollo/server": "^5.5.1",
+    "@as-integrations/express5": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "fast-xml-parser": "^5.10.1",
+    "graphql": "^16.14.2",
     "helmet": "^8.1.0",
     "mongodb": "^7.5.0",
     "pino": "^10.0.0",

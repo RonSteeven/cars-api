@@ -247,6 +247,31 @@ describe.skipIf(!available)('MongoMakeRepository (integration)', () => {
     });
   });
 
+  describe('listVehicleTypes', () => {
+    it('returns each distinct type once, ordered by id', async () => {
+      await repository.upsertMany([ASTON, BENTLEY, TRAILERS], RUN_AT);
+
+      // ASTON and BENTLEY share type 2; it must appear once.
+      await expect(repository.listVehicleTypes()).resolves.toEqual([
+        { typeId: '2', typeName: 'Passenger Car' },
+        { typeId: '6', typeName: 'Trailer' },
+        { typeId: '7', typeName: 'Multipurpose Passenger Vehicle (MPV)' },
+      ]);
+    });
+
+    it('ignores makes with no vehicle types', async () => {
+      await repository.upsertMany([{ ...ASTON, vehicleTypes: [] }, BENTLEY], RUN_AT);
+
+      await expect(repository.listVehicleTypes()).resolves.toEqual([
+        { typeId: '2', typeName: 'Passenger Car' },
+      ]);
+    });
+
+    it('returns nothing for an empty collection', async () => {
+      await expect(repository.listVehicleTypes()).resolves.toEqual([]);
+    });
+  });
+
   describe('error handling', () => {
     it('wraps a driver failure in a PersistenceError', async () => {
       const broken = new MongoMakeRepository(database.db, logger);

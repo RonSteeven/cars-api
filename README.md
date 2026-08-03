@@ -4,10 +4,9 @@ A backend service that ingests vehicle data from the public [NHTSA vPIC](https:/
 XML API, transforms it into JSON, persists it in MongoDB and serves it through a
 single GraphQL endpoint.
 
-> **Status:** in progress. Everything from tooling through ingestion is in place:
-> configuration, logging, the vPIC client, the catalogue transformation, MongoDB
-> persistence and the ingestion pipeline. The GraphQL endpoint lands in the next
-> branch listed under [Roadmap](#roadmap).
+> **Status:** feature complete. XML ingestion, transformation, MongoDB persistence
+> and the GraphQL endpoint all work end to end. Remaining work is broader
+> end-to-end test coverage and a CI pipeline — see [Roadmap](#roadmap).
 
 ---
 
@@ -21,6 +20,7 @@ single GraphQL endpoint.
 - [Project structure](#project-structure)
 - [Data model](#data-model)
 - [Persistence (MongoDB)](#persistence-mongodb)
+- [GraphQL API](#graphql-api)
 - [Error handling strategy](#error-handling-strategy)
 - [Logging strategy](#logging-strategy)
 - [Ingestion pipeline](#ingestion-pipeline)
@@ -63,6 +63,40 @@ curl http://localhost:4000/health/live
 # {"status":"ok","version":"0.1.0","uptimeSeconds":3}
 ```
 
+### Populating the datastore
+
+**A fresh install has no data**, so `makes` returns `totalCount: 0` until you
+ingest. Ingestion never runs implicitly — it is thousands of upstream requests,
+so it is always an explicit choice.
+
+```bash
+# capped run, a few seconds — start here
+INGEST_MAKE_LIMIT=200 npm run ingest
+
+# the whole catalogue (~12,300 makes, several minutes)
+npm run ingest
+```
+
+Then:
+
+```bash
+curl -s -X POST http://localhost:4000/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"{ makes(limit: 2) { totalCount items { makeId makeName vehicleTypes { typeName } } } }"}'
+```
+
+Inside the compose stack, use the one-shot job instead:
+
+```bash
+docker compose run --rm ingest                            # capped at 200
+INGEST_MAKE_LIMIT=0 docker compose run --rm ingest        # full catalogue
+```
+
+The alternative is `INGEST_ON_STARTUP=true`, which runs one pass in the
+background after the server starts listening. `npm run ingest` is usually what
+you want: it exits non-zero if the pass was incomplete, so a scheduler or CI step
+can act on it.
+
 ## Running with Docker
 
 The compose stack builds the production image and wires it to MongoDB. The API
@@ -70,9 +104,17 @@ waits for the database health check before it starts, so a cold `up` is safe.
 
 ```bash
 docker compose up --build          # API on :4000, MongoDB on :27017
+docker compose run --rm ingest     # populate the datastore (see above)
 docker compose logs -f api
 docker compose down                # add -v to drop the database volume
 ```
+
+> **The compose stack runs `NODE_ENV=production`** — it builds the production
+> image. Apollo's CSRF protection therefore rejects a plain browser `GET`
+> on `/graphql` with `400 BAD_REQUEST`, and there is no sandbox. Use `POST` with
+> `content-type: application/json`, or run `npm run dev` locally, where the
+> sandbox is served at <http://localhost:4000/graphql>. Override with
+> `NODE_ENV=development docker compose up` if you want it in the container.
 
 Build and run the image on its own:
 
@@ -93,6 +135,8 @@ reaches Node and the graceful shutdown path actually runs.
 | `npm run dev`           | Watch-mode server via `tsx`                         |
 | `npm run build`         | Type-check and emit `dist/` (`tsconfig.build.json`) |
 | `npm start`             | Run the compiled server from `dist/`                |
+| `npm run ingest`        | One-shot ingestion pass, then exit                  |
+| `npm run ingest:prod`   | Same, from the compiled `dist/`                     |
 | `npm run typecheck`     | `tsc --noEmit` across sources and tests             |
 | `npm run lint`          | ESLint (type-aware rules)                           |
 | `npm run lint:fix`      | ESLint with `--fix`                                 |
@@ -336,6 +380,188 @@ non-zero rather than accepting traffic it cannot serve. Readiness runs a real
 ```json
 { "status": "ok", "version": "0.1.0", "checks": [{ "name": "mongodb", "ok": true }] }
 ```
+
+## GraphQL API
+
+A **single endpoint** at `POST /graphql` (path configurable via `GRAPHQL_PATH`),
+served by Apollo Server 5. The schema lives in
+[`schema.ts`](src/presentation/graphql/schema.ts) as SDL with a description on
+every type, field and argument — so introspection _is_ the API reference.
+
+Outside production the Apollo sandbox is available in a browser at
+<http://localhost:4000/graphql>.
+
+### Schema
+
+```graphql
+type VehicleType {
+  typeId: ID! # NHTSA type id, e.g. "2". Opaque, never numeric.
+  typeName: String! # e.g. "Passenger Car"
+}
+
+type Make {
+  makeId: ID! # NHTSA make id, e.g. "440"
+  makeName: String! # e.g. "ASTON MARTIN"
+  vehicleTypes: [VehicleType!]! # embedded; may be empty, never null
+}
+
+type MakeConnection {
+  items: [Make!]! # this page, ordered by name (case-insensitive)
+  totalCount: Int! # matches ignoring pagination; resolved lazily
+  limit: Int!
+  offset: Int!
+  hasMore: Boolean!
+}
+
+input MakeFilter {
+  search: String # case-insensitive substring, matched literally
+  vehicleTypeId: ID # only makes producing this type
+}
+
+type Query {
+  makes(filter: MakeFilter, limit: Int = 50, offset: Int = 0): MakeConnection!
+  make(makeId: ID!): Make
+  vehicleTypes: [VehicleType!]!
+}
+```
+
+### Example queries
+
+**The unified structure — exactly the shape the brief specifies:**
+
+```graphql
+{
+  makes(limit: 2) {
+    items {
+      makeId
+      makeName
+      vehicleTypes {
+        typeId
+        typeName
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "data": {
+    "makes": {
+      "items": [
+        {
+          "makeId": "12858",
+          "makeName": "#1 ALPINE CUSTOMS",
+          "vehicleTypes": [{ "typeId": "6", "typeName": "Trailer" }]
+        },
+        {
+          "makeId": "4877",
+          "makeName": "1/OFF KUSTOMS, LLC",
+          "vehicleTypes": [{ "typeId": "1", "typeName": "Motorcycle" }]
+        }
+      ]
+    }
+  }
+}
+```
+
+**Paginate, with the total:**
+
+```graphql
+{
+  makes(limit: 25, offset: 50) {
+    totalCount
+    hasMore
+    items {
+      makeId
+      makeName
+    }
+  }
+}
+```
+
+**Filter by name and vehicle type, using variables:**
+
+```graphql
+query FindMakes($filter: MakeFilter) {
+  makes(filter: $filter, limit: 10) {
+    totalCount
+    items {
+      makeId
+      makeName
+    }
+  }
+}
+```
+
+```json
+{ "filter": { "search": "customs", "vehicleTypeId": "6" } }
+```
+
+**One make, and the distinct type list for a filter control:**
+
+```graphql
+{
+  make(makeId: "440") {
+    makeName
+    vehicleTypes {
+      typeName
+    }
+  }
+  vehicleTypes {
+    typeId
+    typeName
+  }
+}
+```
+
+From a terminal:
+
+```bash
+curl -s -X POST http://localhost:4000/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"{ makes(limit: 2) { totalCount items { makeId makeName vehicleTypes { typeName } } } }"}'
+```
+
+### Performance
+
+Four deliberate choices, since the catalogue is ~12,300 makes:
+
+1. **Pagination is not optional.** `limit` defaults to 50 and a request above
+   **200** is _rejected_, not silently truncated — a client is never misled about
+   what it received.
+2. **`totalCount` is a lazy field resolver.** Counting matches is a second
+   database query, so it runs only when the field is selected. Listing a page
+   without it costs one read.
+3. **No N+1.** Vehicle types are embedded in the make document, so
+   `items { vehicleTypes { … } }` adds no per-make lookup. This is the payoff of
+   embedding rather than normalising.
+4. **Both filters are index-backed** — `makeName_ci` for search, the multikey
+   `vehicleTypes.typeId` for type filtering.
+
+### Errors
+
+Errors follow the same taxonomy as the rest of the service, surfaced through
+`extensions.code`:
+
+```json
+{
+  "errors": [
+    {
+      "message": "limit must not exceed 200, received 500",
+      "extensions": { "code": "BAD_REQUEST" }
+    }
+  ]
+}
+```
+
+Operational errors keep their code and message. Client mistakes (`GRAPHQL_PARSE_FAILED`,
+`GRAPHQL_VALIDATION_FAILED`, `BAD_USER_INPUT`) pass through as-is, since they are
+the caller's problem. Anything unexpected is logged in full and returned as a bare
+`INTERNAL_ERROR` — stack traces and error detail are never exposed in production,
+and introspection is off there too.
+
+A missing make returns `null` rather than an error: absence is a normal answer.
 
 ## Error handling strategy
 
@@ -584,8 +810,8 @@ docker compose up -d mongo   # then npm test runs the integration suite too
 | 2   | `feat/nhtsa-client`          | Resilient vPIC HTTP client + XML parsing ✅                      |
 | 3   | `feat/domain-transformation` | Domain model and XML → JSON transformation, fully unit tested ✅ |
 | 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts ✅                     |
-| 5   | `feat/ingestion-pipeline`    | Ingestion with bounded concurrency ← **you are here**            |
-| 6   | `feat/graphql-api`           | Single GraphQL endpoint, typed and documented                    |
+| 5   | `feat/ingestion-pipeline`    | Ingestion with bounded concurrency ✅                            |
+| 6   | `feat/graphql-api`           | Single GraphQL endpoint ← **you are here**                       |
 | 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL coverage            |
 | 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts                       |
 | 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference                |

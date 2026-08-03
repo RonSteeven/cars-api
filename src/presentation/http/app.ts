@@ -32,6 +32,10 @@ export const createApp = (options: CreateAppOptions): Express => {
     }),
   );
 
+  if (options.graphql) {
+    app.use(config.graphql.path, options.graphql);
+  }
+
   app.get('/', (_req, res) => {
     res.json({
       service: 'cars-api',

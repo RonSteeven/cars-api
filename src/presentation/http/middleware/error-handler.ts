@@ -15,13 +15,6 @@ export const notFoundHandler: RequestHandler = (req, _res, next) => {
   next(new NotFoundError(`Route not found: ${req.method} ${req.path}`));
 };
 
-/**
- * Single place where an unhandled error becomes an HTTP response.
- *
- * Operational {@link AppError}s keep their code, status and message. Everything
- * else is logged with its stack and reported as a generic 500 so internal
- * details never leak to clients.
- */
 export const createErrorHandler = (options: {
   logger: Logger;
   exposeMessages: boolean;
@@ -36,8 +29,6 @@ export const createErrorHandler = (options: {
       log.error({ err: error }, `Unhandled error: ${error.message}`);
     }
 
-    // The response may already be streaming (GraphQL, static files); delegating to
-    // Express' default handler is the only safe move once headers are out.
     if (res.headersSent) {
       res.destroy(error);
       return;

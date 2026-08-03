@@ -20,6 +20,7 @@ single GraphQL endpoint.
 - [Project structure](#project-structure)
 - [Error handling strategy](#error-handling-strategy)
 - [Logging strategy](#logging-strategy)
+- [Upstream integration (NHTSA vPIC)](#upstream-integration-nhtsa-vpic)
 - [Testing](#testing)
 - [Git workflow](#git-workflow)
 - [Roadmap](#roadmap)
@@ -239,6 +240,49 @@ Structured NDJSON logs via **Pino**, one line per event, no `console.*` anywhere
   shutdown reason and shutdown completion — are always logged.
 - `LOG_PRETTY=true` swaps in `pino-pretty` for local work. Production always
   emits JSON to stdout, on the assumption the platform collects it.
+
+## Upstream integration (NHTSA vPIC)
+
+Two endpoints feed the catalogue:
+
+| Call                         | Endpoint                                    | Returns                         |
+| ---------------------------- | ------------------------------------------- | ------------------------------- |
+| `getAllMakes()`              | `/getallmakes?format=XML`                   | ~12,300 makes                   |
+| `getVehicleTypesForMake(id)` | `/GetVehicleTypesForMakeId/{id}?format=xml` | Vehicle types for a single make |
+
+[`NhtsaClient`](src/infrastructure/nhtsa/nhtsa.client.ts) is the anti-corruption
+layer: it owns the URLs, the XML and vPIC's `Make_ID`-style naming, and hands
+back plain objects in our own vocabulary (`{ makeId, makeName }`). Nothing
+outside `src/infrastructure/nhtsa` knows XML was involved.
+
+**Resilience.** [`HttpClient`](src/infrastructure/http/http-client.ts) bounds
+every request with an `AbortSignal` timeout and retries transient failures
+(network errors, timeouts, `429`, `5xx`) with exponential backoff plus full
+jitter, honouring a sane `Retry-After`. Permanent failures (`4xx`) fail fast.
+The jitter is not decoration: the catalogue needs one request per make, so
+without it a fleet of workers hitting the same `503` would retry in lockstep and
+hammer the upstream in synchronised waves.
+
+**Parsing.** [`parseXml`](src/infrastructure/xml/xml-parser.ts) validates before
+parsing, because fast-xml-parser is lenient by default and would turn a
+truncated response into silently missing records. Type coercion is switched off:
+ids are opaque keys, the JSON contract we serve specifies strings, and
+`<Make_ID>0440</Make_ID>` must not become the number `440`.
+
+Three XML realities the client handles, all verified against live responses:
+
+| Upstream reality                  | Parsed as    | Handled by |
+| --------------------------------- | ------------ | ---------- |
+| Many children                     | array        | `toArray`  |
+| Exactly one child (most makes)    | bare object  | `toArray`  |
+| `<Results />` for an unknown make | empty string | `toArray`  |
+
+**Failure policy** splits envelope from record. A broken _envelope_ (not XML, no
+`Response`, an HTML gateway page) throws — reporting "0 makes" there would look
+like a successful empty ingestion and wipe the catalogue. A broken _record_
+inside a valid envelope is logged and skipped, and the count is returned to the
+caller as `skipped`, because one bad row in twelve thousand should not abort a
+run, but silently losing it should never go unnoticed.
 
 ## Testing
 

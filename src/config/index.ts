@@ -39,11 +39,6 @@ export interface AppConfig {
   };
 }
 
-/**
- * Thrown when the process environment does not satisfy {@link envSchema}.
- * Carries a human readable, line-per-variable breakdown so a misconfigured
- * deployment fails loudly at startup instead of misbehaving at request time.
- */
 export class ConfigurationError extends Error {
   override readonly name = 'ConfigurationError';
 
@@ -118,10 +113,6 @@ export const buildConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig 
 
 let cached: AppConfig | undefined;
 
-/**
- * Loads `.env` (never overriding real environment variables) and returns the
- * validated, memoised application configuration.
- */
 export const loadConfig = (): AppConfig => {
   if (!cached) {
     loadDotenv({ quiet: true });
@@ -130,7 +121,6 @@ export const loadConfig = (): AppConfig => {
   return cached;
 };
 
-/** Test seam: drops the memoised config so the next {@link loadConfig} re-reads the env. */
 export const resetConfigCache = (): void => {
   cached = undefined;
 };

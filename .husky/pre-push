@@ -1,0 +1,17 @@
+#!/bin/sh
+# Quality gate that runs before anything leaves this machine.
+#
+# Deliberately on pre-push rather than pre-commit: commits stay fast during
+# local work, while nothing that fails lint, type-check or tests can reach the
+# remote and start a PR. Skip in an emergency with `git push --no-verify`.
+
+set -e
+
+echo "▶ lint"
+npm run lint
+
+echo "▶ typecheck"
+npm run typecheck
+
+echo "▶ test"
+npm test

@@ -1,8 +1,34 @@
 import { TransformationError } from '../../shared/errors.js';
-import type { CatalogInput, CatalogResult, Make } from '../../types/vehicle.js';
+import type { CatalogInput, CatalogResult, Make, VehicleType } from '../../types/vehicle.js';
 import { compareIds } from '../../utils/sort.js';
-import { collectVehicleTypes } from '../../utils/vehicle.js';
-import { makeSchema } from './vehicle.schemas.js';
+import { makeSchema, vehicleTypeSchema } from './vehicle.schemas.js';
+
+/** Validates, de-duplicates and orders the vehicle types belonging to one make. */
+const collectVehicleTypes = (
+  candidates: readonly VehicleType[],
+): { vehicleTypes: VehicleType[]; invalid: number; duplicates: number } => {
+  const vehicleTypes: VehicleType[] = [];
+  const seen = new Set<string>();
+  let invalid = 0;
+  let duplicates = 0;
+
+  for (const candidate of candidates) {
+    const parsed = vehicleTypeSchema.safeParse(candidate);
+    if (!parsed.success) {
+      invalid += 1;
+      continue;
+    }
+    if (seen.has(parsed.data.typeId)) {
+      duplicates += 1;
+      continue;
+    }
+    seen.add(parsed.data.typeId);
+    vehicleTypes.push(parsed.data);
+  }
+
+  vehicleTypes.sort((a, b) => compareIds(a.typeId, b.typeId));
+  return { vehicleTypes, invalid, duplicates };
+};
 
 export const buildVehicleCatalog = (input: CatalogInput): CatalogResult => {
   const makes: Make[] = [];

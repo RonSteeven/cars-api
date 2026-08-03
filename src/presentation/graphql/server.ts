@@ -4,7 +4,6 @@ import { expressMiddleware } from '@as-integrations/express5';
 import { unwrapResolverError } from '@apollo/server/errors';
 import type { RequestHandler } from 'express';
 import { AppError } from '../../shared/errors.js';
-import { isAppError } from '../../utils/error.js';
 import type { GraphQLContext, GraphQLServerDependencies } from '../../types/graphql.js';
 
 /**
@@ -72,7 +71,7 @@ export const createGraphQLHandler = async (
         return formatted;
       }
 
-      if (isAppError(original)) {
+      if (original instanceof AppError) {
         if (original.isOperational) {
           logger.warn({ err: original.toLogObject() }, `GraphQL error: ${original.message}`);
           return {
@@ -113,5 +112,3 @@ export const createGraphQLHandler = async (
     stop: () => server.stop(),
   };
 };
-
-export { AppError };

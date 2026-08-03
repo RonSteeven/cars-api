@@ -1,6 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
-import { AppError, NotFoundError } from '../../../shared/errors.js';
-import { isAppError, toError } from '../../../utils/error.js';
+import { AppError, NotFoundError, toError } from '../../../shared/errors.js';
 import type { Logger } from '../../../shared/logger.js';
 
 interface ErrorBody {
@@ -21,11 +20,12 @@ export const createErrorHandler = (options: {
   exposeMessages: boolean;
 }): ErrorRequestHandler => {
   return (err, req, res, _next) => {
-    const error = isAppError(err) ? err : toError(err);
+    const error = toError(err);
+    const appError = error instanceof AppError ? error : undefined;
     const log = req.log ?? options.logger;
 
-    if (error instanceof AppError && error.isOperational) {
-      log.warn({ err: error.toLogObject() }, `Request failed: ${error.message}`);
+    if (appError?.isOperational) {
+      log.warn({ err: appError.toLogObject() }, `Request failed: ${error.message}`);
     } else {
       log.error({ err: error }, `Unhandled error: ${error.message}`);
     }
@@ -35,12 +35,14 @@ export const createErrorHandler = (options: {
       return;
     }
 
-    const status = error instanceof AppError ? error.status : 500;
-    const expose = options.exposeMessages || (error instanceof AppError && error.isOperational);
+    // A bug's message may leak internals, so it is only echoed where we already
+    // expose stack traces; an operational error's message is written for callers.
+    const status = appError?.status ?? 500;
+    const expose = options.exposeMessages || appError?.isOperational === true;
 
     const body: ErrorBody = {
       error: {
-        code: error instanceof AppError ? error.code : 'INTERNAL_ERROR',
+        code: appError?.code ?? 'INTERNAL_ERROR',
         message: expose ? error.message : 'Internal server error',
       },
     };

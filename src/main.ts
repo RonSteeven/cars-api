@@ -2,7 +2,8 @@ import { loadConfig, ConfigurationError } from './config/index.js';
 import { createLogger, type Logger } from './shared/logger.js';
 import { APP_VERSION } from './shared/version.js';
 import { createApp } from './presentation/http/app.js';
-import { startHttpServer, type HttpServerHandle } from './server.js';
+import { startHttpServer } from './server.js';
+import type { HttpServerHandle } from './types/http.js';
 
 const SHUTDOWN_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
 

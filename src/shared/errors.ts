@@ -1,21 +1,11 @@
-export type ErrorCode =
-  | 'CONFIGURATION_ERROR'
-  | 'UPSTREAM_UNAVAILABLE'
-  | 'UPSTREAM_BAD_RESPONSE'
-  | 'XML_PARSE_ERROR'
-  | 'TRANSFORMATION_ERROR'
-  | 'PERSISTENCE_ERROR'
-  | 'NOT_FOUND'
-  | 'BAD_REQUEST'
-  | 'INTERNAL_ERROR';
+import type { AppErrorOptions, ErrorCode } from '../types/error.js';
 
-export interface AppErrorOptions {
-  readonly cause?: unknown;
-  readonly status?: number;
-  readonly isOperational?: boolean;
-  readonly context?: Readonly<Record<string, unknown>>;
-}
-
+/**
+ * Error taxonomy for the service.
+ *
+ * Anything that does NOT extend AppError is treated as an unexpected exception:
+ * logged in full, reported to the caller as a generic internal error.
+ */
 export class AppError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
@@ -32,6 +22,7 @@ export class AppError extends Error {
     Error.captureStackTrace?.(this, new.target);
   }
 
+  /** Log-friendly, JSON-serialisable projection of the error. */
   toLogObject(): Record<string, unknown> {
     return {
       name: this.name,
@@ -90,9 +81,3 @@ export class BadRequestError extends AppError {
     super('BAD_REQUEST', message, { status: 400, ...options });
   }
 }
-
-export const isAppError = (error: unknown): error is AppError => error instanceof AppError;
-
-// Narrows an unknown `catch` binding to something with a readable message.
-export const toError = (value: unknown): Error =>
-  value instanceof Error ? value : new Error(typeof value === 'string' ? value : String(value));

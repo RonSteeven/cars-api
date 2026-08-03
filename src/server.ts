@@ -1,13 +1,8 @@
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
 import type { Express } from 'express';
-import type { AppConfig } from './config/index.js';
+import type { AppConfig } from './types/config.js';
+import type { HttpServerHandle } from './types/http.js';
 import type { Logger } from './shared/logger.js';
-
-export interface HttpServerHandle {
-  readonly server: Server;
-  readonly address: string;
-  close(): Promise<void>;
-}
 
 export const startHttpServer = async (
   app: Express,

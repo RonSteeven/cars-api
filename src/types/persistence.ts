@@ -43,4 +43,6 @@ export interface MakeRepository {
   findMany(query?: MakeQuery): Promise<Make[]>;
   findByMakeId(makeId: string): Promise<Make | null>;
   count(query?: MakeQuery): Promise<number>;
+  /** Distinct vehicle types across the whole catalogue, for building filters. */
+  listVehicleTypes(): Promise<VehicleType[]>;
 }

@@ -6,6 +6,9 @@ import { HttpClient } from './infrastructure/http/http-client.js';
 import { NhtsaClient } from './infrastructure/nhtsa/nhtsa.client.js';
 import { MongoConnection } from './infrastructure/persistence/mongo/mongo-connection.js';
 import { MongoMakeRepository } from './infrastructure/persistence/mongo/make.repository.js';
+import { createGraphQLHandler, type GraphQLHandler } from './presentation/graphql/server.js';
+import { resolvers } from './presentation/graphql/resolvers.js';
+import { typeDefs } from './presentation/graphql/schema.js';
 import { createApp } from './presentation/http/app.js';
 import { startHttpServer } from './server.js';
 import type { AppConfig } from './types/config.js';
@@ -37,11 +40,23 @@ const bootstrap = async (): Promise<void> => {
   const makeRepository = new MongoMakeRepository(db, logger);
   await makeRepository.ensureIndexes();
 
+  const graphql = await createGraphQLHandler(
+    {
+      repository: makeRepository,
+      logger,
+      introspection: config.graphql.introspection,
+      exposeInternals: !config.isProduction,
+    },
+    typeDefs,
+    resolvers,
+  );
+
   const app = createApp({
     config,
     logger,
     version: APP_VERSION,
     healthChecks: [mongo.healthCheck()],
+    graphql: graphql.middleware,
   });
   const http = await startHttpServer(app, config, logger);
 
@@ -61,6 +76,7 @@ const bootstrap = async (): Promise<void> => {
     logger,
     ingestion,
     ingestionDone,
+    graphql,
     shutdownTimeoutMs: config.http.shutdownTimeoutMs,
   });
 };
@@ -113,6 +129,7 @@ interface LifecycleDependencies {
   readonly ingestion: AbortController;
   /** Resolves when the background run has finished draining. Never rejects. */
   readonly ingestionDone: Promise<void>;
+  readonly graphql: GraphQLHandler;
   readonly shutdownTimeoutMs: number;
 }
 
@@ -122,6 +139,7 @@ const registerLifecycleHandlers = ({
   logger,
   ingestion,
   ingestionDone,
+  graphql,
   shutdownTimeoutMs,
 }: LifecycleDependencies): void => {
   let shuttingDown = false;
@@ -140,6 +158,8 @@ const registerLifecycleHandlers = ({
 
     http
       .close()
+      // Apollo drains its own in-flight operations before resolving.
+      .then(() => graphql.stop())
       .then(async () => {
         // Closing the connection underneath an in-flight bulk write would both
         // lose the batch and log a spurious failure, so drain first — bounded,

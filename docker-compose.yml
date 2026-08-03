@@ -34,8 +34,31 @@ services:
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB_NAME: ${MONGODB_DB_NAME:-cars}
       NHTSA_BASE_URL: ${NHTSA_BASE_URL:-https://vpic.nhtsa.dot.gov/api/vehicles}
+      GRAPHQL_INTROSPECTION: ${GRAPHQL_INTROSPECTION:-true}
       INGEST_ON_STARTUP: ${INGEST_ON_STARTUP:-false}
       INGEST_MAKE_LIMIT: ${INGEST_MAKE_LIMIT:-0}
+
+  # One-shot ingestion job: `docker compose run --rm ingest`.
+  # Behind a profile so `docker compose up` never starts it. The API does not
+  # ingest on boot by default, so this is how the datastore gets populated.
+  ingest:
+    profiles: ['tools']
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: ['node', 'dist/cli/ingest.js']
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-cars}
+      NHTSA_BASE_URL: ${NHTSA_BASE_URL:-https://vpic.nhtsa.dot.gov/api/vehicles}
+      NHTSA_CONCURRENCY: ${NHTSA_CONCURRENCY:-12}
+      # Default to a capped run: a full pass is ~12,300 upstream requests.
+      INGEST_MAKE_LIMIT: ${INGEST_MAKE_LIMIT:-200}
 
 volumes:
   mongo-data:

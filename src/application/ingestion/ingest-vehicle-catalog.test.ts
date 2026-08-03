@@ -2,59 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pino } from 'pino';
 import { ingestVehicleCatalog } from './ingest-vehicle-catalog.js';
 import { UpstreamUnavailableError } from '../../shared/errors.js';
-import type { MakeQuery, MakeRepository, UpsertResult } from '../../types/persistence.js';
 import type { VehicleCatalogSource } from '../../types/ingestion.js';
+import { FakeMakeRepository } from '../../../tests/helpers/fake-make-repository.js';
 import type { Make } from '../../types/vehicle.js';
 
 const logger = pino({ level: 'silent' });
 const RUN_AT = new Date('2026-03-01T00:00:00.000Z');
-
-/** In-memory repository: the pipeline only ever sees the port. */
-class FakeRepository implements MakeRepository {
-  readonly stored = new Map<string, { make: Make; syncedAt: Date }>();
-  upsertCalls: { makes: readonly Make[]; syncedAt: Date }[] = [];
-  pruneCalls: Date[] = [];
-
-  ensureIndexes(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  upsertMany(makes: readonly Make[], syncedAt: Date): Promise<UpsertResult> {
-    this.upsertCalls.push({ makes, syncedAt });
-    let inserted = 0;
-    let matched = 0;
-    for (const make of makes) {
-      if (this.stored.has(make.makeId)) matched += 1;
-      else inserted += 1;
-      this.stored.set(make.makeId, { make, syncedAt });
-    }
-    return Promise.resolve({ matched, modified: matched, inserted });
-  }
-
-  deleteStaleBefore(syncedAt: Date): Promise<number> {
-    this.pruneCalls.push(syncedAt);
-    let deleted = 0;
-    for (const [id, entry] of this.stored) {
-      if (entry.syncedAt < syncedAt) {
-        this.stored.delete(id);
-        deleted += 1;
-      }
-    }
-    return Promise.resolve(deleted);
-  }
-
-  findMany(_query?: MakeQuery): Promise<Make[]> {
-    return Promise.resolve([...this.stored.values()].map((e) => e.make));
-  }
-
-  findByMakeId(makeId: string): Promise<Make | null> {
-    return Promise.resolve(this.stored.get(makeId)?.make ?? null);
-  }
-
-  count(_query?: MakeQuery): Promise<number> {
-    return Promise.resolve(this.stored.size);
-  }
-}
 
 interface SourceSpec {
   makes: { makeId: string; makeName: string }[];
@@ -87,7 +40,7 @@ const TYPES = {
 };
 
 const run = (spec: SourceSpec, overrides: { concurrency?: number; makeLimit?: number } = {}) => {
-  const repository = new FakeRepository();
+  const repository = new FakeMakeRepository();
   return {
     repository,
     report: ingestVehicleCatalog({
@@ -183,7 +136,7 @@ describe('ingestVehicleCatalog', () => {
 
     it('does NOT overwrite stored types with an empty array', async () => {
       // The whole point: a transient network error must not erase good data.
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
       const existing: Make = {
         makeId: '441',
         makeName: 'BENTLEY',
@@ -233,7 +186,7 @@ describe('ingestVehicleCatalog', () => {
 
   describe('rule 2: pruning only after a complete pass', () => {
     it('prunes makes that disappeared upstream', async () => {
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
       await repository.upsertMany(
         [{ makeId: '999', makeName: 'GONE', vehicleTypes: [] }],
         new Date('2026-01-01T00:00:00.000Z'),
@@ -266,7 +219,7 @@ describe('ingestVehicleCatalog', () => {
     it('does not delete an excluded make, which looks stale but is not', async () => {
       // 441 was excluded by rule 1, so its syncedAt is old. Pruning here would
       // delete a make that still exists upstream.
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
       await repository.upsertMany(
         [{ makeId: '441', makeName: 'BENTLEY', vehicleTypes: [] }],
         new Date('2026-01-01T00:00:00.000Z'),
@@ -327,7 +280,7 @@ describe('ingestVehicleCatalog', () => {
 
     it('stops the run and reports it', async () => {
       const controller = new AbortController();
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
       const source: VehicleCatalogSource = {
         getAllMakes: () => Promise.resolve({ records: makes, skipped: 0 }),
         getVehicleTypesForMake: async () => {
@@ -350,7 +303,7 @@ describe('ingestVehicleCatalog', () => {
 
     it('still persists what it managed to gather', async () => {
       const controller = new AbortController();
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
       const source: VehicleCatalogSource = {
         getAllMakes: () => Promise.resolve({ records: makes, skipped: 0 }),
         getVehicleTypesForMake: async () => {
@@ -373,7 +326,7 @@ describe('ingestVehicleCatalog', () => {
     it('never prunes after an abort', async () => {
       const controller = new AbortController();
       controller.abort();
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
 
       const report = await ingestVehicleCatalog(
         {
@@ -397,7 +350,7 @@ describe('ingestVehicleCatalog', () => {
     it('rejects when the make list itself cannot be fetched', async () => {
       // Without the make list there is nothing to ingest, and continuing would
       // write an empty catalogue.
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
 
       await expect(
         ingestVehicleCatalog({
@@ -416,7 +369,7 @@ describe('ingestVehicleCatalog', () => {
     });
 
     it('propagates a persistence failure', async () => {
-      const repository = new FakeRepository();
+      const repository = new FakeMakeRepository();
       vi.spyOn(repository, 'upsertMany').mockRejectedValue(new Error('mongo down'));
 
       await expect(
@@ -434,7 +387,7 @@ describe('ingestVehicleCatalog', () => {
   it('respects the configured concurrency', async () => {
     let active = 0;
     let peak = 0;
-    const repository = new FakeRepository();
+    const repository = new FakeMakeRepository();
     const makes = Array.from({ length: 20 }, (_, i) => ({
       makeId: String(i),
       makeName: `MAKE ${i}`,

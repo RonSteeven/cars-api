@@ -2,15 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { pino } from 'pino';
 import type { Express } from 'express';
-import { buildConfig } from '../../src/config/index.js';
-import {
-  createGraphQLHandler,
-  type GraphQLHandler,
-} from '../../src/presentation/graphql/server.js';
-import { resolvers, MAX_PAGE_SIZE } from '../../src/presentation/graphql/resolvers.js';
-import { typeDefs } from '../../src/presentation/graphql/schema.js';
-import { createApp } from '../../src/presentation/http/app.js';
-import type { Make } from '../../src/types/vehicle.js';
+import { buildConfig } from '@/config/index.js';
+import { createGraphQLHandler, type GraphQLHandler } from '@/presentation/graphql/server.js';
+import { resolvers, MAX_PAGE_SIZE } from '@/presentation/graphql/resolvers.js';
+import { typeDefs } from '@/presentation/graphql/schema.js';
+import { createApp } from '@/presentation/http/app.js';
+import type { Make } from '@/types/vehicle.js';
 import { FakeMakeRepository } from '../helpers/fake-make-repository.js';
 
 const logger = pino({ level: 'silent' });

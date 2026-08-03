@@ -10,7 +10,7 @@
  * `buildSchema` is enough here — printing the type system needs no resolvers.
  */
 import { buildSchema, printSchema } from 'graphql';
-import { typeDefs } from '../src/presentation/graphql/schema.js';
+import { typeDefs } from '@/presentation/graphql/schema.js';
 
 // graphql-js omits the trailing newline every text file should end with.
 process.stdout.write(`${printSchema(buildSchema(typeDefs))}\n`);

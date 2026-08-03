@@ -7,6 +7,9 @@
     "rootDir": ".",
     "outDir": "dist",
     "types": ["node"],
+    "paths": {
+      "@/*": ["./src/*"]
+    },
 
     "strict": true,
     "noUncheckedIndexedAccess": true,

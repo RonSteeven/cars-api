@@ -2,19 +2,16 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import request from 'supertest';
 import { pino } from 'pino';
 import type { Express } from 'express';
-import { buildConfig } from '../../src/config/index.js';
-import { ingestVehicleCatalog } from '../../src/application/ingestion/ingest-vehicle-catalog.js';
-import { HttpClient } from '../../src/infrastructure/http/http-client.js';
-import { NhtsaClient } from '../../src/infrastructure/nhtsa/nhtsa.client.js';
-import { MongoMakeRepository } from '../../src/infrastructure/persistence/mongo/make.repository.js';
-import {
-  createGraphQLHandler,
-  type GraphQLHandler,
-} from '../../src/presentation/graphql/server.js';
-import { resolvers } from '../../src/presentation/graphql/resolvers.js';
-import { typeDefs } from '../../src/presentation/graphql/schema.js';
-import { createApp } from '../../src/presentation/http/app.js';
-import type { IngestionReport } from '../../src/types/ingestion.js';
+import { buildConfig } from '@/config/index.js';
+import { ingestVehicleCatalog } from '@/application/ingestion/ingest-vehicle-catalog.js';
+import { HttpClient } from '@/infrastructure/http/http-client.js';
+import { NhtsaClient } from '@/infrastructure/nhtsa/nhtsa.client.js';
+import { MongoMakeRepository } from '@/infrastructure/persistence/mongo/make.repository.js';
+import { createGraphQLHandler, type GraphQLHandler } from '@/presentation/graphql/server.js';
+import { resolvers } from '@/presentation/graphql/resolvers.js';
+import { typeDefs } from '@/presentation/graphql/schema.js';
+import { createApp } from '@/presentation/http/app.js';
+import type { IngestionReport } from '@/types/ingestion.js';
 import { createTestDatabase, isMongoAvailable, type TestDatabase } from '../helpers/mongo.js';
 import { startVpicStub, type StubMake, type VpicStub } from '../helpers/vpic-stub.js';
 

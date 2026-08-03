@@ -1,6 +1,6 @@
-import { TransformationError } from '../../shared/errors.js';
-import type { CatalogInput, CatalogResult, Make, VehicleType } from '../../types/vehicle.js';
-import { compareIds } from '../../utils/sort.js';
+import { TransformationError } from '@/shared/errors.js';
+import type { CatalogInput, CatalogResult, Make, VehicleType } from '@/types/vehicle.js';
+import { compareIds } from '@/utils/sort.js';
 import { makeSchema, vehicleTypeSchema } from './vehicle.schemas.js';
 
 /** Validates, de-duplicates and orders the vehicle types belonging to one make. */

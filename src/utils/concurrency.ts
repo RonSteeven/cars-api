@@ -1,4 +1,4 @@
-import { toError } from '../shared/errors.js';
+import { toError } from '@/shared/errors.js';
 
 export interface ConcurrentSuccess<T, R> {
   readonly index: number;

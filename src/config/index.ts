@@ -1,6 +1,6 @@
 import { config as loadDotenv } from 'dotenv';
 import { envSchema, type Env } from './env.schema.js';
-import type { AppConfig } from '../types/config.js';
+import type { AppConfig } from '@/types/config.js';
 
 export class ConfigurationError extends Error {
   override readonly name = 'ConfigurationError';

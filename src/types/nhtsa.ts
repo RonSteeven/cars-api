@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import type { HttpClient } from '../infrastructure/http/http-client.js';
+import type { HttpClient } from '@/infrastructure/http/http-client.js';
 
 /** Types for the NHTSA vPIC adapter, expressed in this service's vocabulary. */
 

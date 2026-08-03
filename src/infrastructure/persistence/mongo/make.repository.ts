@@ -1,14 +1,9 @@
 import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
-import { PersistenceError } from '../../../shared/errors.js';
-import type { Logger } from '../../../shared/logger.js';
-import type {
-  MakeDocument,
-  MakeQuery,
-  MakeRepository,
-  UpsertResult,
-} from '../../../types/persistence.js';
-import type { Make, VehicleType } from '../../../types/vehicle.js';
-import { chunk } from '../../../utils/chunk.js';
+import { PersistenceError } from '@/shared/errors.js';
+import type { Logger } from '@/shared/logger.js';
+import type { MakeDocument, MakeQuery, MakeRepository, UpsertResult } from '@/types/persistence.js';
+import type { Make, VehicleType } from '@/types/vehicle.js';
+import { chunk } from '@/utils/chunk.js';
 import { buildFilter, toDocument, toDomain } from './make.mapper.js';
 
 export const MAKES_COLLECTION = 'makes';

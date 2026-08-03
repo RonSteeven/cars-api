@@ -1,6 +1,6 @@
-import type { Env } from '../config/env.schema.js';
+import type { Env } from '@/config/env.schema.js';
 
-export type { Env } from '../config/env.schema.js';
+export type { Env } from '@/config/env.schema.js';
 
 /**
  * The structured, read-only view of configuration every module depends on.

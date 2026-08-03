@@ -1,5 +1,5 @@
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { XmlParseError } from '../../shared/errors.js';
+import { XmlParseError } from '@/shared/errors.js';
 
 const parser = new XMLParser({
   ignoreAttributes: true,

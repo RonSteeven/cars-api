@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildFilter, toDocument, toDomain } from './make.mapper.js';
-import type { MakeDocument } from '../../../types/persistence.js';
-import type { Make } from '../../../types/vehicle.js';
+import type { MakeDocument } from '@/types/persistence.js';
+import type { Make } from '@/types/vehicle.js';
 
 const SYNCED_AT = new Date('2026-01-01T00:00:00.000Z');
 

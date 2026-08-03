@@ -1,13 +1,13 @@
-import { BadRequestError } from '../../shared/errors.js';
+import { BadRequestError } from '@/shared/errors.js';
 import type {
   GraphQLContext,
   MakeArgs,
   MakeConnection,
   MakeFilterArgs,
   MakesArgs,
-} from '../../types/graphql.js';
-import type { MakeQuery } from '../../types/persistence.js';
-import type { Make, VehicleType } from '../../types/vehicle.js';
+} from '@/types/graphql.js';
+import type { MakeQuery } from '@/types/persistence.js';
+import type { Make, VehicleType } from '@/types/vehicle.js';
 
 /**
  * Hard ceiling on page size.

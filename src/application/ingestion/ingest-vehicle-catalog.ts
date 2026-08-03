@@ -1,11 +1,11 @@
-import { buildVehicleCatalog } from '../../domain/vehicles/vehicle-catalog.js';
+import { buildVehicleCatalog } from '@/domain/vehicles/vehicle-catalog.js';
 import type {
   IngestionDependencies,
   IngestionOptions,
   IngestionReport,
-} from '../../types/ingestion.js';
-import type { MakeInput, VehicleType } from '../../types/vehicle.js';
-import { mapWithConcurrency } from '../../utils/concurrency.js';
+} from '@/types/ingestion.js';
+import type { MakeInput, VehicleType } from '@/types/vehicle.js';
+import { mapWithConcurrency } from '@/utils/concurrency.js';
 
 const PROGRESS_INTERVAL = 1_000;
 

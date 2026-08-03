@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pino } from 'pino';
 import { NhtsaClient } from './nhtsa.client.js';
-import { HttpClient } from '../http/http-client.js';
-import type { FetchLike } from '../../types/http.js';
-import { UpstreamBadResponseError, XmlParseError } from '../../shared/errors.js';
+import { HttpClient } from '@/infrastructure/http/http-client.js';
+import type { FetchLike } from '@/types/http.js';
+import { UpstreamBadResponseError, XmlParseError } from '@/shared/errors.js';
 import { loadFixture } from '../../../tests/fixtures/index.js';
 
 const logger = pino({ level: 'silent' });

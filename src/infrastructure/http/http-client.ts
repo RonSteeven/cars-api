@@ -1,7 +1,7 @@
-import { UpstreamBadResponseError, UpstreamUnavailableError } from '../../shared/errors.js';
-import type { Logger } from '../../shared/logger.js';
-import type { FetchLike, HttpClientOptions, SleepLike } from '../../types/http.js';
-import { backoffDelay, isRetryableStatus, parseRetryAfter, sleep } from '../../utils/http.js';
+import { UpstreamBadResponseError, UpstreamUnavailableError } from '@/shared/errors.js';
+import type { Logger } from '@/shared/logger.js';
+import type { FetchLike, HttpClientOptions, SleepLike } from '@/types/http.js';
+import { backoffDelay, isRetryableStatus, parseRetryAfter, sleep } from '@/utils/http.js';
 
 /**
  * Minimal resilient HTTP client for outbound calls.

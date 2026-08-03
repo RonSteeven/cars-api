@@ -1,4 +1,4 @@
-import type { SleepLike } from '../types/http.js';
+import type { SleepLike } from '@/types/http.js';
 
 export const sleep: SleepLike = (ms) =>
   new Promise((resolve) => {

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pino } from 'pino';
 import { HttpClient } from './http-client.js';
-import type { FetchLike } from '../../types/http.js';
-import { UpstreamBadResponseError, UpstreamUnavailableError } from '../../shared/errors.js';
+import type { FetchLike } from '@/types/http.js';
+import { UpstreamBadResponseError, UpstreamUnavailableError } from '@/shared/errors.js';
 
 const logger = pino({ level: 'silent' });
 

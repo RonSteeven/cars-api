@@ -49,10 +49,3 @@ export interface CatalogResult {
   readonly makes: Make[];
   readonly stats: CatalogStats;
 }
-
-/** Outcome of validating and de-duplicating the types belonging to one make. */
-export interface VehicleTypeCollection {
-  readonly vehicleTypes: VehicleType[];
-  readonly invalid: number;
-  readonly duplicates: number;
-}

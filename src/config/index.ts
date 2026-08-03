@@ -1,7 +1,6 @@
 import { config as loadDotenv } from 'dotenv';
 import { envSchema, type Env } from './env.schema.js';
 import type { AppConfig } from '../types/config.js';
-import { parseCorsOrigins } from '../utils/config.js';
 
 export class ConfigurationError extends Error {
   override readonly name = 'ConfigurationError';
@@ -10,6 +9,16 @@ export class ConfigurationError extends Error {
     super(`Invalid environment configuration:\n${issues.map((i) => `  - ${i}`).join('\n')}`);
   }
 }
+
+/** Splits a comma separated CORS allow-list, keeping `*` (or empty) as a wildcard. */
+const parseCorsOrigins = (raw: string): string[] | '*' => {
+  const trimmed = raw.trim();
+  if (trimmed === '*' || trimmed === '') return '*';
+  return trimmed
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+};
 
 const toAppConfig = (env: Env): AppConfig => ({
   env: env.NODE_ENV,

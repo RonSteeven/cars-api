@@ -109,12 +109,15 @@ docker compose logs -f api
 docker compose down                # add -v to drop the database volume
 ```
 
-> **The compose stack runs `NODE_ENV=production`** — it builds the production
-> image. Apollo's CSRF protection therefore rejects a plain browser `GET`
-> on `/graphql` with `400 BAD_REQUEST`, and there is no sandbox. Use `POST` with
-> `content-type: application/json`, or run `npm run dev` locally, where the
-> sandbox is served at <http://localhost:4000/graphql>. Override with
-> `NODE_ENV=development docker compose up` if you want it in the container.
+> **The compose stack runs `NODE_ENV=production`**, since it builds the production
+> image. Two consequences worth knowing:
+>
+> - The Apollo sandbox **is** available at <http://localhost:4000/graphql> because
+>   compose sets `GRAPHQL_INTROSPECTION=true`. Set it to `false` for a deployment
+>   that should expose neither the schema nor the page.
+> - Apollo's CSRF protection rejects a browser `GET` on `/graphql` with
+>   `400 BAD_REQUEST` when no query is supplied. That is by design; use `POST` with
+>   `content-type: application/json`, or the sandbox.
 
 Build and run the image on its own:
 
@@ -783,16 +786,47 @@ npm run test:coverage    # coverage report in coverage/
 so tests never inherit a developer's `.env`. HTTP tests drive the app in-process
 with `supertest` — no port binding required.
 
+### Three layers
+
+| Layer           | Where                                              | Substitutes                              |
+| --------------- | -------------------------------------------------- | ---------------------------------------- |
+| **Unit**        | beside the source                                  | Everything external; pure functions only |
+| **Integration** | `tests/persistence`, `tests/graphql`, `tests/http` | One real dependency at a time            |
+| **End-to-end**  | `tests/e2e`                                        | Only the upstream API                    |
+
+**Unit tests mock the boundary, not the logic.** The transformation, the retry
+maths, the concurrency pool and the config schema are all pure, so they are tested
+with object literals — no network, no database, no timers. `fetch` and `sleep` are
+injected into the HTTP client, which is why 19 retry tests run in ~12ms instead of
+30 seconds of real backoff.
+
 **Repository tests run against a real MongoDB.** An in-memory fake would not
 exercise collations, multikey indexes or `bulkWrite` semantics — precisely the
-parts most likely to be wrong. Each suite gets its own `cars_test_*` database and
-drops it afterwards, so runs cannot collide. When no server is reachable at
-`MONGODB_URI` the suite is **skipped rather than failed**, so `npm test` still
-passes on a machine without Docker while CI, which does run one, gets full
-coverage:
+parts most likely to be wrong.
+
+**End-to-end tests run the whole chain.** `tests/e2e` starts a local HTTP server
+that serves genuine vPIC-shaped XML ([`vpic-stub.ts`](tests/helpers/vpic-stub.ts)),
+points the real `HttpClient` at it, and then ingests → persists → queries over
+GraphQL with `supertest`. Every layer is the real one; only NHTSA is substituted.
+Mocking `fetch` instead would skip exactly what is most likely to break: XML
+parsing, retry behaviour, index-backed queries.
+
+That is what lets these be verified as behaviour rather than implementation:
+
+- a transient `503` is retried and the make still lands
+- a make whose types never arrive is excluded, and **previously stored types survive**
+- pruning is skipped on an incomplete pass, even when makes really did vanish
+- malformed XML for one make costs only that make
+- a single-type make (which XML collapses to an object) still serves as an array
+- re-ingesting is idempotent; a rename or a new type is picked up
+
+Each suite gets its own `cars_test_*` database and drops it afterwards, so runs
+cannot collide. When no server is reachable at `MONGODB_URI` the database-backed
+suites are **skipped rather than failed**, so `npm test` still passes on a machine
+without Docker while CI, which does run one, gets full coverage:
 
 ```bash
-docker compose up -d mongo   # then npm test runs the integration suite too
+docker compose up -d mongo   # then npm test runs the integration and e2e suites too
 ```
 
 ## Git workflow
@@ -811,7 +845,7 @@ docker compose up -d mongo   # then npm test runs the integration suite too
 | 3   | `feat/domain-transformation` | Domain model and XML → JSON transformation, fully unit tested ✅ |
 | 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts ✅                     |
 | 5   | `feat/ingestion-pipeline`    | Ingestion with bounded concurrency ✅                            |
-| 6   | `feat/graphql-api`           | Single GraphQL endpoint ← **you are here**                       |
-| 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL coverage            |
+| 6   | `feat/graphql-api`           | Single GraphQL endpoint ✅                                       |
+| 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL ← **you are here**  |
 | 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts                       |
 | 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference                |

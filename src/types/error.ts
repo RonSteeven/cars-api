@@ -8,7 +8,6 @@
  */
 
 export type ErrorCode =
-  | 'CONFIGURATION_ERROR'
   | 'UPSTREAM_UNAVAILABLE'
   | 'UPSTREAM_BAD_RESPONSE'
   | 'XML_PARSE_ERROR'

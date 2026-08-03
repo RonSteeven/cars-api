@@ -22,7 +22,6 @@ export const toDomain = (document: MakeDocument): Make => ({
   })),
 });
 
-
 export const buildFilter = (query: MakeQuery = {}): Filter<MakeDocument> => {
   const filter: Record<string, unknown> = {};
 

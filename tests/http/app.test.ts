@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { pino } from 'pino';
-import { buildConfig } from '../../src/config/index.js';
-import { createApp } from '../../src/presentation/http/app.js';
+import { buildConfig } from '@/config/index.js';
+import { createApp } from '@/presentation/http/app.js';
 
 const logger = pino({ level: 'silent' });
 const config = buildConfig({ NODE_ENV: 'test' });

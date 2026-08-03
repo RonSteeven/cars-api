@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseXml } from './xml-parser.js';
-import { XmlParseError } from '../../shared/errors.js';
+import { XmlParseError } from '@/shared/errors.js';
 import { loadFixture } from '../../../tests/fixtures/index.js';
 
 describe('parseXml', () => {

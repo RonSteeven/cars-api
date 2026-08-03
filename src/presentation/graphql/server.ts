@@ -1,10 +1,12 @@
 import { ApolloServer, type ApolloServerOptions } from '@apollo/server';
 import { ApolloServerPluginLandingPageDisabled } from '@apollo/server/plugin/disabled';
+import { ApolloServerPluginLandingPageLocalDefault } from '@apollo/server/plugin/landingPage/default';
 import { expressMiddleware } from '@as-integrations/express5';
 import { unwrapResolverError } from '@apollo/server/errors';
 import type { RequestHandler } from 'express';
-import { AppError } from '../../shared/errors.js';
-import type { GraphQLContext, GraphQLServerDependencies } from '../../types/graphql.js';
+import { AppError } from '@/shared/errors.js';
+import type { GraphQLContext, GraphQLServerDependencies } from '@/types/graphql.js';
+import { sandboxDocument, sandboxVariables } from './sandbox.js';
 
 /**
  * Apollo error codes that mean "the caller got it wrong".
@@ -50,7 +52,18 @@ export const createGraphQLHandler = async (
     introspection: dependencies.introspection,
     // Stack traces are developer aids, never part of an API response.
     includeStacktraceInErrorResponses: dependencies.exposeInternals,
-    plugins: dependencies.introspection ? [] : [ApolloServerPluginLandingPageDisabled()],
+    // The landing page exists only where introspection does: without a schema
+    // to read, a sandbox is a dead editor. Where it is served, it opens on a
+    // worked example rather than Apollo's empty tab.
+    plugins: dependencies.introspection
+      ? [
+          ApolloServerPluginLandingPageLocalDefault({
+            document: sandboxDocument,
+            variables: sandboxVariables,
+            embed: true,
+          }),
+        ]
+      : [ApolloServerPluginLandingPageDisabled()],
 
     /**
      * Single place where a thrown error becomes a GraphQL error.

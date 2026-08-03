@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildVehicleCatalog } from './vehicle-catalog.js';
-import { TransformationError } from '../../shared/errors.js';
-import type { CatalogInput, MakeInput, VehicleType } from '../../types/vehicle.js';
+import { TransformationError } from '@/shared/errors.js';
+import type { CatalogInput, MakeInput, VehicleType } from '@/types/vehicle.js';
 
 const build = (
   makes: readonly MakeInput[],

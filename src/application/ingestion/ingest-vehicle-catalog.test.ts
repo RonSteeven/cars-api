@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pino } from 'pino';
 import { ingestVehicleCatalog } from './ingest-vehicle-catalog.js';
-import { UpstreamUnavailableError } from '../../shared/errors.js';
-import type { VehicleCatalogSource } from '../../types/ingestion.js';
+import { UpstreamUnavailableError } from '@/shared/errors.js';
+import type { VehicleCatalogSource } from '@/types/ingestion.js';
 import { FakeMakeRepository } from '../../../tests/helpers/fake-make-repository.js';
-import type { Make } from '../../types/vehicle.js';
+import type { Make } from '@/types/vehicle.js';
 
 const logger = pino({ level: 'silent' });
 const RUN_AT = new Date('2026-03-01T00:00:00.000Z');

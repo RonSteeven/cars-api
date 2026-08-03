@@ -1,7 +1,7 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet, { type HelmetOptions } from 'helmet';
-import type { CreateAppOptions } from '../../types/app.js';
+import type { CreateAppOptions } from '@/types/app.js';
 import { createRequestLogger } from './middleware/request-logger.js';
 import { createErrorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { createHealthRouter } from './routes/health.route.js';

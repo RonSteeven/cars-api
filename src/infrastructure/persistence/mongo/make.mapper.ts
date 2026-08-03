@@ -1,7 +1,7 @@
 import type { Filter } from 'mongodb';
-import type { MakeDocument, MakeQuery } from '../../../types/persistence.js';
-import type { Make } from '../../../types/vehicle.js';
-import { escapeRegExp } from '../../../utils/text.js';
+import type { MakeDocument, MakeQuery } from '@/types/persistence.js';
+import type { Make } from '@/types/vehicle.js';
+import { escapeRegExp } from '@/utils/text.js';
 
 /**
  * Domain ↔ document translation, which is only ever the key: `makeId` is stored

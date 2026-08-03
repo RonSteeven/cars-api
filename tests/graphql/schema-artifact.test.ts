@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { buildSchema, printSchema } from 'graphql';
 import { describe, expect, it } from 'vitest';
-import { typeDefs } from '../../src/presentation/graphql/schema.js';
+import { typeDefs } from '@/presentation/graphql/schema.js';
 
 /**
  * Guards the committed schema reference.

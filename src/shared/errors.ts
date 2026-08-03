@@ -1,4 +1,4 @@
-import type { AppErrorOptions, ErrorCode } from '../types/error.js';
+import type { AppErrorOptions, ErrorCode } from '@/types/error.js';
 
 /**
  * Error taxonomy for the service.

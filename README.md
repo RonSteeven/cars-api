@@ -139,22 +139,22 @@ reaches Node and the graceful shutdown path actually runs.
 
 ## npm scripts
 
-| Script                  | What it does                                        |
-| ----------------------- | --------------------------------------------------- |
-| `npm run dev`           | Watch-mode server via `tsx`                         |
-| `npm run build`         | Type-check and emit `dist/` (`tsconfig.build.json`) |
-| `npm start`             | Run the compiled server from `dist/`                |
-| `npm run ingest`        | One-shot ingestion pass, then exit                  |
-| `npm run ingest:prod`   | Same, from the compiled `dist/`                     |
-| `npm run schema:print`  | Regenerate [`schema.graphql`](schema.graphql)       |
-| `npm run typecheck`     | `tsc --noEmit` across sources and tests             |
-| `npm run lint`          | ESLint (type-aware rules)                           |
-| `npm run lint:fix`      | ESLint with `--fix`                                 |
-| `npm run format`        | Prettier write                                      |
-| `npm run format:check`  | Prettier check (used in CI)                         |
-| `npm test`              | Vitest, single run                                  |
-| `npm run test:watch`    | Vitest in watch mode                                |
-| `npm run test:coverage` | Vitest with a V8 coverage report in `coverage/`     |
+| Script                  | What it does                                              |
+| ----------------------- | --------------------------------------------------------- |
+| `npm run dev`           | Watch-mode server via `tsx`                               |
+| `npm run build`         | Emit `dist/`, then rewrite `@/` aliases to relative paths |
+| `npm start`             | Run the compiled server from `dist/`                      |
+| `npm run ingest`        | One-shot ingestion pass, then exit                        |
+| `npm run ingest:prod`   | Same, from the compiled `dist/`                           |
+| `npm run schema:print`  | Regenerate [`schema.graphql`](schema.graphql)             |
+| `npm run typecheck`     | `tsc --noEmit` across sources and tests                   |
+| `npm run lint`          | ESLint (type-aware rules)                                 |
+| `npm run lint:fix`      | ESLint with `--fix`                                       |
+| `npm run format`        | Prettier write                                            |
+| `npm run format:check`  | Prettier check (used in CI)                               |
+| `npm test`              | Vitest, single run                                        |
+| `npm run test:watch`    | Vitest in watch mode                                      |
+| `npm run test:coverage` | Vitest with a V8 coverage report in `coverage/`           |
 
 ## Configuration
 
@@ -318,6 +318,27 @@ Conventions worth knowing:
   cross-layer tests live in `tests/`.
 - **No barrel files.** Imports name the exact module, so a reader can see where
   a symbol comes from and the bundler never pulls in a whole folder.
+- **`@/` means `src/`; `./` means "next door".** Anything that would climb out of
+  its own directory is written `@/shared/errors.js` instead of
+  `../../../shared/errors.js`, so a file can move without rewriting its imports and
+  a reader can see the layer being reached for. Same-directory imports stay
+  relative, because they are already short and signal locality.
+
+### Making the `@/` alias work in all three places
+
+TypeScript's `paths` is a **type-checking** fiction: `tsc` never rewrites import
+specifiers on emit, so an aliased build would type-check cleanly and then die at
+runtime with `ERR_MODULE_NOT_FOUND`. Three resolvers therefore have to agree, and
+all three are wired:
+
+| Where             | Mechanism                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| Type check, `dev` | `paths` in [`tsconfig.json`](tsconfig.json); `tsx` reads it natively                   |
+| Tests             | `resolve.alias` in [`vitest.config.ts`](vitest.config.ts) — Vite does not read `paths` |
+| `dist/`           | `tsc-alias` after `tsc`, rewriting `@/…` to real relative paths                        |
+
+That last step is why `npm run build` is two commands. The Docker image runs the
+same script, so the shipped `dist/` contains no `@/` specifier at all.
 
 ## Data model
 

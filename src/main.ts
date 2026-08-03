@@ -1,20 +1,20 @@
-import { loadConfig, ConfigurationError } from './config/index.js';
-import { createLogger, type Logger } from './shared/logger.js';
-import { APP_VERSION } from './shared/version.js';
-import { ingestVehicleCatalog } from './application/ingestion/ingest-vehicle-catalog.js';
-import { HttpClient } from './infrastructure/http/http-client.js';
-import { NhtsaClient } from './infrastructure/nhtsa/nhtsa.client.js';
-import { MongoConnection } from './infrastructure/persistence/mongo/mongo-connection.js';
-import { MongoMakeRepository } from './infrastructure/persistence/mongo/make.repository.js';
-import { createGraphQLHandler, type GraphQLHandler } from './presentation/graphql/server.js';
-import { resolvers } from './presentation/graphql/resolvers.js';
-import { typeDefs } from './presentation/graphql/schema.js';
-import { createApp } from './presentation/http/app.js';
-import { startHttpServer } from './server.js';
-import type { AppConfig } from './types/config.js';
-import type { HttpServerHandle } from './types/http.js';
-import type { MakeRepository } from './types/persistence.js';
-import { settleWithin } from './utils/promise.js';
+import { loadConfig, ConfigurationError } from '@/config/index.js';
+import { createLogger, type Logger } from '@/shared/logger.js';
+import { APP_VERSION } from '@/shared/version.js';
+import { ingestVehicleCatalog } from '@/application/ingestion/ingest-vehicle-catalog.js';
+import { HttpClient } from '@/infrastructure/http/http-client.js';
+import { NhtsaClient } from '@/infrastructure/nhtsa/nhtsa.client.js';
+import { MongoConnection } from '@/infrastructure/persistence/mongo/mongo-connection.js';
+import { MongoMakeRepository } from '@/infrastructure/persistence/mongo/make.repository.js';
+import { createGraphQLHandler, type GraphQLHandler } from '@/presentation/graphql/server.js';
+import { resolvers } from '@/presentation/graphql/resolvers.js';
+import { typeDefs } from '@/presentation/graphql/schema.js';
+import { createApp } from '@/presentation/http/app.js';
+import { startHttpServer } from '@/server.js';
+import type { AppConfig } from '@/types/config.js';
+import type { HttpServerHandle } from '@/types/http.js';
+import type { MakeRepository } from '@/types/persistence.js';
+import { settleWithin } from '@/utils/promise.js';
 
 const SHUTDOWN_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
 

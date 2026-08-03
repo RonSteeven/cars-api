@@ -1,7 +1,7 @@
-import type { MakeQuery, MakeRepository, UpsertResult } from '../../src/types/persistence.js';
-import type { Make, VehicleType } from '../../src/types/vehicle.js';
-import { compareIds } from '../../src/utils/sort.js';
-import { escapeRegExp } from '../../src/utils/text.js';
+import type { MakeQuery, MakeRepository, UpsertResult } from '@/types/persistence.js';
+import type { Make, VehicleType } from '@/types/vehicle.js';
+import { compareIds } from '@/utils/sort.js';
+import { escapeRegExp } from '@/utils/text.js';
 
 /**
  * In-memory {@link MakeRepository}.

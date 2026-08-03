@@ -1,15 +1,15 @@
 import type { ZodType } from 'zod';
-import { UpstreamBadResponseError } from '../../shared/errors.js';
-import type { Logger } from '../../shared/logger.js';
+import { UpstreamBadResponseError } from '@/shared/errors.js';
+import type { Logger } from '@/shared/logger.js';
 import type {
   NhtsaClientOptions,
   NhtsaMake,
   NhtsaResult,
   NhtsaVehicleType,
-} from '../../types/nhtsa.js';
-import type { HttpClient } from '../http/http-client.js';
-import { toArray } from '../../utils/array.js';
-import { parseXml } from '../xml/xml-parser.js';
+} from '@/types/nhtsa.js';
+import type { HttpClient } from '@/infrastructure/http/http-client.js';
+import { toArray } from '@/utils/array.js';
+import { parseXml } from '@/infrastructure/xml/xml-parser.js';
 import {
   allMakesResponseSchema,
   makeRecordSchema,

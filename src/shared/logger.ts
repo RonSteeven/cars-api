@@ -1,5 +1,5 @@
 import { pino, type Logger, type LoggerOptions } from 'pino';
-import type { AppConfig } from '../types/config.js';
+import type { AppConfig } from '@/types/config.js';
 
 export type { Logger } from 'pino';
 

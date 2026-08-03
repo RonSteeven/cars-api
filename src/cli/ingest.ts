@@ -1,11 +1,11 @@
-import { loadConfig, ConfigurationError } from '../config/index.js';
-import { createLogger } from '../shared/logger.js';
-import { APP_VERSION } from '../shared/version.js';
-import { ingestVehicleCatalog } from '../application/ingestion/ingest-vehicle-catalog.js';
-import { HttpClient } from '../infrastructure/http/http-client.js';
-import { NhtsaClient } from '../infrastructure/nhtsa/nhtsa.client.js';
-import { MongoConnection } from '../infrastructure/persistence/mongo/mongo-connection.js';
-import { MongoMakeRepository } from '../infrastructure/persistence/mongo/make.repository.js';
+import { loadConfig, ConfigurationError } from '@/config/index.js';
+import { createLogger } from '@/shared/logger.js';
+import { APP_VERSION } from '@/shared/version.js';
+import { ingestVehicleCatalog } from '@/application/ingestion/ingest-vehicle-catalog.js';
+import { HttpClient } from '@/infrastructure/http/http-client.js';
+import { NhtsaClient } from '@/infrastructure/nhtsa/nhtsa.client.js';
+import { MongoConnection } from '@/infrastructure/persistence/mongo/mongo-connection.js';
+import { MongoMakeRepository } from '@/infrastructure/persistence/mongo/make.repository.js';
 
 /**
  * One-shot ingestion command: `npm run ingest`.

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { HealthRouterOptions } from '../../../types/health.js';
+import type { HealthRouterOptions } from '@/types/health.js';
 
 /**
  * Two distinct probes, because orchestrators treat them differently:

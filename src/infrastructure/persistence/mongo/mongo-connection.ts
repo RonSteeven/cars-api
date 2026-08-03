@@ -1,8 +1,8 @@
 import { MongoClient, type Db } from 'mongodb';
-import { PersistenceError } from '../../../shared/errors.js';
-import type { AppConfig } from '../../../types/config.js';
-import type { HealthCheck, HealthCheckResult } from '../../../types/health.js';
-import type { Logger } from '../../../shared/logger.js';
+import { PersistenceError } from '@/shared/errors.js';
+import type { AppConfig } from '@/types/config.js';
+import type { HealthCheck, HealthCheckResult } from '@/types/health.js';
+import type { Logger } from '@/shared/logger.js';
 
 export class MongoConnection {
   private readonly client: MongoClient;

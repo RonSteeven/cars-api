@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { normalizeText } from '../../utils/text.js';
-import type { Make, VehicleType } from '../../types/vehicle.js';
+import { normalizeText } from '@/utils/text.js';
+import type { Make, VehicleType } from '@/types/vehicle.js';
 
 /** Runtime validation and normalisation for the vehicle catalogue. */
 

@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { pino } from 'pino';
-import { MongoMakeRepository } from '../../src/infrastructure/persistence/mongo/make.repository.js';
-import { PersistenceError } from '../../src/shared/errors.js';
-import type { Make } from '../../src/types/vehicle.js';
+import { MongoMakeRepository } from '@/infrastructure/persistence/mongo/make.repository.js';
+import { PersistenceError } from '@/shared/errors.js';
+import type { Make } from '@/types/vehicle.js';
 import { createTestDatabase, isMongoAvailable, type TestDatabase } from '../helpers/mongo.js';
 
 const logger = pino({ level: 'silent' });

@@ -4,10 +4,10 @@ A backend service that ingests vehicle data from the public [NHTSA vPIC](https:/
 XML API, transforms it into JSON, persists it in MongoDB and serves it through a
 single GraphQL endpoint.
 
-> **Status:** in progress. Tooling, configuration, logging, the vPIC client, the
-> catalogue transformation and MongoDB persistence are in place. The ingestion
-> pipeline and the GraphQL endpoint land in the follow-up branches listed under
-> [Roadmap](#roadmap).
+> **Status:** in progress. Everything from tooling through ingestion is in place:
+> configuration, logging, the vPIC client, the catalogue transformation, MongoDB
+> persistence and the ingestion pipeline. The GraphQL endpoint lands in the next
+> branch listed under [Roadmap](#roadmap).
 
 ---
 
@@ -23,6 +23,7 @@ single GraphQL endpoint.
 - [Persistence (MongoDB)](#persistence-mongodb)
 - [Error handling strategy](#error-handling-strategy)
 - [Logging strategy](#logging-strategy)
+- [Ingestion pipeline](#ingestion-pipeline)
 - [Upstream integration (NHTSA vPIC)](#upstream-integration-nhtsa-vpic)
 - [Testing](#testing)
 - [Git workflow](#git-workflow)
@@ -401,6 +402,103 @@ Structured NDJSON logs via **Pino**, one line per event, no `console.*` anywhere
 - `LOG_PRETTY=true` swaps in `pino-pretty` for local work. Production always
   emits JSON to stdout, on the assumption the platform collects it.
 
+## Ingestion pipeline
+
+One pass is: **fetch → transform → persist → prune**, implemented as a single
+use case in
+[`ingest-vehicle-catalog.ts`](src/application/ingestion/ingest-vehicle-catalog.ts).
+
+```mermaid
+sequenceDiagram
+    participant P as Pipeline
+    participant V as vPIC API
+    participant D as Domain
+    participant M as MongoDB
+
+    P->>V: GET /getallmakes
+    V-->>P: ~12,300 makes
+    Note over P,V: N workers, bounded by NHTSA_CONCURRENCY
+    loop per make
+        P->>V: GET /GetVehicleTypesForMakeId/{id}
+        V-->>P: vehicle types (or failure → make excluded)
+    end
+    P->>D: buildVehicleCatalog(makes, typesByMakeId)
+    D-->>P: unified catalogue + stats
+    P->>M: bulkWrite upserts, stamped syncedAt = runStart
+    alt run complete
+        P->>M: delete where syncedAt < runStart
+    else run incomplete
+        Note over P,M: prune skipped, reason logged
+    end
+```
+
+**Scale is the whole problem.** vPIC exposes vehicle types only per make, so a
+complete pass is 1 + ~12,300 requests. That single fact drives every decision
+below.
+
+### Bounded concurrency
+
+[`mapWithConcurrency`](src/utils/concurrency.ts) runs `NHTSA_CONCURRENCY` workers
+pulling from a shared cursor — a worker pool, **not** batches. Batching
+(`Promise.all` over slices of N) stalls every slice on its slowest item, and the
+tail of 12,300 requests always contains a few that retry for seconds. Results are
+returned in input order regardless of completion order, so the same input always
+produces the same output.
+
+### The two failure rules
+
+These are the decisions most worth reviewing:
+
+1. **A make whose vehicle-type request fails is excluded from the write entirely.**
+   The tempting alternative — store it with `vehicleTypes: []` — would overwrite
+   good stored data with a gap caused by a transient network error.
+
+2. **Pruning only runs after a complete pass.** Deletion is driven by "untouched
+   by this run", and a make excluded by rule 1 looks _identical_ to a make that
+   disappeared upstream. Pruning after a partial pass would therefore delete
+   perfectly good records. A run is complete only when nothing failed and nothing
+   was aborted; a capped run (`INGEST_MAKE_LIMIT`) never prunes either, since
+   everything beyond the cap would look stale.
+
+A failed make list, by contrast, **rejects the whole run** — without it there is
+nothing to ingest, and continuing would write an empty catalogue.
+
+### Triggering
+
+`INGEST_ON_STARTUP=true` fires one pass after the HTTP listener opens — _after_,
+deliberately, because a pass takes minutes and readiness should not wait on it.
+Failure is logged and the service keeps serving whatever is already stored.
+
+`SIGTERM` aborts a run in flight. Shutdown then **drains** it before closing
+MongoDB (bounded by `SHUTDOWN_TIMEOUT_MS`), so whatever was already gathered
+still gets persisted and no bulk write is cut mid-flight.
+
+`INGEST_MAKE_LIMIT=25` caps a run, which turns a multi-minute pass into a
+~4-second one for local work.
+
+### Observability
+
+Every run logs a full report:
+
+```json
+{
+  "makesFetched": 25,
+  "makesSkippedUpstream": 0,
+  "vehicleTypesSkippedUpstream": 0,
+  "failedMakes": 0,
+  "durationMs": 3681,
+  "catalog": { "makesIn": 25, "makesOut": 25, "invalidMakes": 0, "duplicateMakes": 0 },
+  "upserted": { "matched": 0, "modified": 0, "inserted": 25 },
+  "pruned": 0,
+  "pruneSkipped": true,
+  "aborted": false
+}
+```
+
+Every number answers a question someone asks when a run looks wrong. Re-running
+an unchanged catalogue reports `inserted: 0`, which is the quickest way to
+confirm the pass is idempotent.
+
 ## Upstream integration (NHTSA vPIC)
 
 Two endpoints feed the catalogue:
@@ -485,8 +583,8 @@ docker compose up -d mongo   # then npm test runs the integration suite too
 | 1   | `chore/initial-setup`        | Tooling, config, logging, HTTP bootstrap, Docker ✅              |
 | 2   | `feat/nhtsa-client`          | Resilient vPIC HTTP client + XML parsing ✅                      |
 | 3   | `feat/domain-transformation` | Domain model and XML → JSON transformation, fully unit tested ✅ |
-| 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts ← **you are here**     |
-| 5   | `feat/ingestion-pipeline`    | Orchestrated ingestion with bounded concurrency                  |
+| 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts ✅                     |
+| 5   | `feat/ingestion-pipeline`    | Ingestion with bounded concurrency ← **you are here**            |
 | 6   | `feat/graphql-api`           | Single GraphQL endpoint, typed and documented                    |
 | 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL coverage            |
 | 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts                       |

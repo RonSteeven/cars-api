@@ -17,7 +17,6 @@ const BULK_CHUNK_SIZE = 1_000;
 
 const CASE_INSENSITIVE = { locale: 'en', strength: 2 } as const;
 
-
 export class MongoMakeRepository implements MakeRepository {
   private readonly collection: Collection<MakeDocument>;
   private readonly logger: Logger;

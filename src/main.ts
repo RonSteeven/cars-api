@@ -1,6 +1,8 @@
 import { loadConfig, ConfigurationError } from './config/index.js';
 import { createLogger, type Logger } from './shared/logger.js';
 import { APP_VERSION } from './shared/version.js';
+import { MongoConnection } from './infrastructure/persistence/mongo/mongo-connection.js';
+import { MongoMakeRepository } from './infrastructure/persistence/mongo/make.repository.js';
 import { createApp } from './presentation/http/app.js';
 import { startHttpServer } from './server.js';
 import type { HttpServerHandle } from './types/http.js';
@@ -22,15 +24,33 @@ const bootstrap = async (): Promise<void> => {
     'Starting cars-api',
   );
 
-  const app = createApp({ config, logger, version: APP_VERSION });
+  // The datastore comes up before the HTTP listener: a process that cannot
+  // reach MongoDB should fail to start, not accept traffic it cannot serve.
+  const mongo = new MongoConnection(config, logger);
+  const db = await mongo.connect();
+  const makeRepository = new MongoMakeRepository(db, logger);
+  await makeRepository.ensureIndexes();
+
+  const app = createApp({
+    config,
+    logger,
+    version: APP_VERSION,
+    healthChecks: [mongo.healthCheck()],
+  });
   const http = await startHttpServer(app, config, logger);
 
   logger.info({ address: http.address }, 'HTTP server listening');
 
-  registerLifecycleHandlers(http, logger);
+  registerLifecycleHandlers({ http, mongo, logger });
 };
 
-const registerLifecycleHandlers = (http: HttpServerHandle, logger: Logger): void => {
+interface LifecycleDependencies {
+  readonly http: HttpServerHandle;
+  readonly mongo: MongoConnection;
+  readonly logger: Logger;
+}
+
+const registerLifecycleHandlers = ({ http, mongo, logger }: LifecycleDependencies): void => {
   let shuttingDown = false;
 
   const shutdown = (reason: string, exitCode: number): void => {
@@ -41,8 +61,11 @@ const registerLifecycleHandlers = (http: HttpServerHandle, logger: Logger): void
     shuttingDown = true;
     logger.info({ reason }, 'Shutting down');
 
+    // Order matters: stop accepting requests first, then drop the connections
+    // those requests were using.
     http
       .close()
+      .then(() => mongo.close())
       .then(() => {
         logger.info({ reason }, 'Shutdown complete');
         logger.flush?.();

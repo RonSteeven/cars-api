@@ -4,9 +4,10 @@ A backend service that ingests vehicle data from the public [NHTSA vPIC](https:/
 XML API, transforms it into JSON, persists it in MongoDB and serves it through a
 single GraphQL endpoint.
 
-> **Status:** foundation. Configuration, logging, HTTP bootstrap, tooling and
-> containerisation are in place. Ingestion, persistence and the GraphQL layer land
-> in the follow-up branches listed under [Roadmap](#roadmap).
+> **Status:** in progress. Tooling, configuration, logging, the vPIC client, the
+> catalogue transformation and MongoDB persistence are in place. The ingestion
+> pipeline and the GraphQL endpoint land in the follow-up branches listed under
+> [Roadmap](#roadmap).
 
 ---
 
@@ -19,6 +20,7 @@ single GraphQL endpoint.
 - [Configuration](#configuration)
 - [Project structure](#project-structure)
 - [Data model](#data-model)
+- [Persistence (MongoDB)](#persistence-mongodb)
 - [Error handling strategy](#error-handling-strategy)
 - [Logging strategy](#logging-strategy)
 - [Upstream integration (NHTSA vPIC)](#upstream-integration-nhtsa-vpic)
@@ -263,6 +265,77 @@ Every run returns a `stats` block (`makesIn`, `makesOut`, `invalidMakes`,
 `invalidVehicleTypes`, `duplicateVehicleTypes`) so ingestion can report
 "11,998 of 12,312" instead of losing the difference silently.
 
+## Persistence (MongoDB)
+
+One collection, `makes`, holding one document per make with its vehicle types
+embedded. The repository
+([`make.repository.ts`](src/infrastructure/persistence/mongo/make.repository.ts))
+implements the `MakeRepository` **port** declared in
+[`src/types/persistence.ts`](src/types/persistence.ts), so the application layer
+depends on an interface and never on the MongoDB driver.
+
+### Document shape
+
+```js
+{
+  _id: "440",                    // the make id IS the primary key
+  makeName: "ASTON MARTIN",
+  vehicleTypes: [ { typeId: "2", typeName: "Passenger Car" } ],
+  syncedAt: ISODate("...")       // storage-only, never served
+}
+```
+
+**The make id is `_id`.** That single decision buys a unique index for free, makes
+every upsert idempotent on the natural key, and removes any chance of two
+concurrent runs storing the same make twice. `_id` is projected back onto
+`makeId` on read, so `_id` and `syncedAt` never reach the API.
+
+### Indexes
+
+| Index                 | Purpose                                       |
+| --------------------- | --------------------------------------------- |
+| `_id`                 | Lookup by make id (automatic, unique)         |
+| `makeName_ci`         | Sorted listings and name search               |
+| `vehicleTypes_typeId` | Filter makes by vehicle type (multikey)       |
+| `syncedAt`            | The prune step at the end of an ingestion run |
+
+`makeName_ci` carries a collation (`locale: en, strength: 2`), which makes search
+and ordering case-insensitive **without** storing a duplicate lowercased field.
+Queries that use it pass the same collation, otherwise MongoDB silently ignores
+the index.
+
+### Writes
+
+`upsertMany` chunks into `bulkWrite` batches of 1,000 with `ordered: false`.
+
+- **Chunking** because MongoDB caps a batch at 100k operations and 16MB of BSON,
+  and a 12,312-document catalogue as one batch is slow to acknowledge and
+  all-or-nothing to retry.
+- **`ordered: false`** so the server applies the rest of a batch after an
+  individual failure. One bad document should not block the other 11,999.
+- **`$set`, not replace**, so the write is idempotent: re-running an unchanged
+  catalogue reports `inserted: 0` and leaves the data untouched.
+
+### Removals
+
+A make that disappears upstream has to disappear here too. Each run stamps
+`syncedAt`, then `deleteStaleBefore(runStartedAt)` removes whatever it did not
+touch. The caller must only prune **after a run that completed** — pruning on a
+partial run would delete perfectly good data, which is why the repository takes
+the timestamp as an argument rather than deciding for itself.
+
+### Failure handling
+
+Every driver error is wrapped in `PersistenceError` by a single `guard` helper,
+so no caller ever sees a MongoDB error class. Startup connects to the database
+_before_ opening the HTTP listener: a process that cannot reach MongoDB exits
+non-zero rather than accepting traffic it cannot serve. Readiness runs a real
+`ping`, so `GET /health/ready` reports `503` when the connection breaks:
+
+```json
+{ "status": "ok", "version": "0.1.0", "checks": [{ "name": "mongodb", "ok": true }] }
+```
+
 ## Error handling strategy
 
 Every deliberate failure extends `AppError`
@@ -383,8 +456,20 @@ npm run test:coverage    # coverage report in coverage/
 ```
 
 `tests/setup.ts` pins `NODE_ENV=test` and silences logs before any module loads,
-so tests never inherit a developer's `.env` or write to a real database. HTTP
-tests drive the app in-process with `supertest` — no port binding required.
+so tests never inherit a developer's `.env`. HTTP tests drive the app in-process
+with `supertest` — no port binding required.
+
+**Repository tests run against a real MongoDB.** An in-memory fake would not
+exercise collations, multikey indexes or `bulkWrite` semantics — precisely the
+parts most likely to be wrong. Each suite gets its own `cars_test_*` database and
+drops it afterwards, so runs cannot collide. When no server is reachable at
+`MONGODB_URI` the suite is **skipped rather than failed**, so `npm test` still
+passes on a machine without Docker while CI, which does run one, gets full
+coverage:
+
+```bash
+docker compose up -d mongo   # then npm test runs the integration suite too
+```
 
 ## Git workflow
 
@@ -395,14 +480,14 @@ tests drive the app in-process with `supertest` — no port binding required.
 
 ## Roadmap
 
-| #   | Branch                       | Scope                                                               |
-| --- | ---------------------------- | ------------------------------------------------------------------- |
-| 1   | `chore/initial-setup`        | Tooling, config, logging, HTTP bootstrap, Docker ← **you are here** |
-| 2   | `feat/nhtsa-client`          | Resilient vPIC HTTP client + XML parsing                            |
-| 3   | `feat/domain-transformation` | Domain model and XML → JSON transformation, fully unit tested       |
-| 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts                           |
-| 5   | `feat/ingestion-pipeline`    | Orchestrated ingestion with bounded concurrency                     |
-| 6   | `feat/graphql-api`           | Single GraphQL endpoint, typed and documented                       |
-| 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL coverage               |
-| 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts                          |
-| 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference                   |
+| #   | Branch                       | Scope                                                            |
+| --- | ---------------------------- | ---------------------------------------------------------------- |
+| 1   | `chore/initial-setup`        | Tooling, config, logging, HTTP bootstrap, Docker ✅              |
+| 2   | `feat/nhtsa-client`          | Resilient vPIC HTTP client + XML parsing ✅                      |
+| 3   | `feat/domain-transformation` | Domain model and XML → JSON transformation, fully unit tested ✅ |
+| 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts ← **you are here**     |
+| 5   | `feat/ingestion-pipeline`    | Orchestrated ingestion with bounded concurrency                  |
+| 6   | `feat/graphql-api`           | Single GraphQL endpoint, typed and documented                    |
+| 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL coverage            |
+| 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts                       |
+| 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference                |

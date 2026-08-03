@@ -4,9 +4,13 @@ A backend service that ingests vehicle data from the public [NHTSA vPIC](https:/
 XML API, transforms it into JSON, persists it in MongoDB and serves it through a
 single GraphQL endpoint.
 
-> **Status:** feature complete. XML ingestion, transformation, MongoDB persistence
-> and the GraphQL endpoint all work end to end. Remaining work is broader
-> end-to-end test coverage and a CI pipeline — see [Roadmap](#roadmap).
+[![CI](https://github.com/RonSteeven/cars-api/actions/workflows/ci.yml/badge.svg)](https://github.com/RonSteeven/cars-api/actions/workflows/ci.yml)
+
+> **Status:** feature complete and covered end to end. XML ingestion,
+> transformation, MongoDB persistence and the GraphQL endpoint all work, 275 tests
+> run the whole chain against a real database, and every push is linted, typed,
+> tested and built as a container image in [CI](#continuous-integration).
+> Remaining work is expanded API documentation — see [Roadmap](#roadmap).
 
 ---
 
@@ -26,6 +30,7 @@ single GraphQL endpoint.
 - [Ingestion pipeline](#ingestion-pipeline)
 - [Upstream integration (NHTSA vPIC)](#upstream-integration-nhtsa-vpic)
 - [Testing](#testing)
+- [Continuous integration](#continuous-integration)
 - [Git workflow](#git-workflow)
 - [Roadmap](#roadmap)
 
@@ -829,12 +834,46 @@ without Docker while CI, which does run one, gets full coverage:
 docker compose up -d mongo   # then npm test runs the integration and e2e suites too
 ```
 
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request
+and every push to `main`. Four independent jobs, so one failure never hides
+another and the whole thing finishes in parallel:
+
+| Job                     | What it proves                                      | Artifact      |
+| ----------------------- | --------------------------------------------------- | ------------- |
+| **Lint, format, types** | ESLint, Prettier and `tsc --noEmit` are clean       | —             |
+| **Tests (MongoDB 8)**   | 275 tests against a real database, with coverage    | `coverage/`   |
+| **Build dist**          | `tsconfig.build.json` emits both entrypoints        | `dist/`       |
+| **Docker image**        | the shipped image boots, reaches MongoDB and serves | image tarball |
+
+Two details are the whole point of this pipeline:
+
+**The test job refuses to let a skip pass for a pass.** The database-backed suites
+skip themselves when nothing answers at `MONGODB_URI` — deliberate, so `npm test`
+works without Docker, but in CI it would silently turn 55 integration and e2e
+tests into a green no-op if the service container were slow. A `Wait for MongoDB`
+step polls first and fails the job outright if the server never answers.
+
+**The Docker job runs the image, not just `docker build`.** It starts the built
+container against MongoDB, waits for `/health/ready` (which probes the datastore,
+so a 200 means the container really reached it) and then POSTs a real GraphQL
+query. A Dockerfile that compiles but ships a broken runtime — wrong `CMD`, a
+missing production dependency, a permission the `node` user lacks — fails here
+rather than in a deployment.
+
+The image is exported as a build artifact rather than pushed to a registry;
+publishing to GHCR is a `docker/login-action` step away when there is somewhere
+to deploy it.
+
 ## Git workflow
 
 - `main` is protected; every task ships on its own branch and merges via PR.
 - Branch naming: `feat/…`, `fix/…`, `chore/…`, `docs/…`, `test/…`.
 - **Husky pre-push hook** runs lint, type-check and the test suite. A failing
-  hook blocks the push. Run `npm install` once to install it.
+  hook blocks the push. Run `npm install` once to install it. It is the same gate
+  as [CI](#continuous-integration), run early: the hook catches a failure in
+  seconds locally instead of minutes into a pull request.
 
 ## Roadmap
 
@@ -846,6 +885,6 @@ docker compose up -d mongo   # then npm test runs the integration and e2e suites
 | 4   | `feat/mongo-persistence`     | MongoDB repository, indexes, bulk upserts ✅                     |
 | 5   | `feat/ingestion-pipeline`    | Ingestion with bounded concurrency ✅                            |
 | 6   | `feat/graphql-api`           | Single GraphQL endpoint ✅                                       |
-| 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL ← **you are here**  |
-| 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts                       |
+| 7   | `test/integration`           | End-to-end ingestion → persistence → GraphQL ✅                  |
+| 8   | `ci/github-actions`          | Lint, test, build, Docker image, artifacts ← **you are here**    |
 | 9   | `docs/api-documentation`     | Pipeline docs, diagrams, GraphQL schema reference                |

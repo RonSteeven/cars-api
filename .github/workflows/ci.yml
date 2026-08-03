@@ -1,0 +1,207 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref makes the run in progress obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # `npm ci` runs `prepare`, which installs the Husky hooks. A CI checkout has no
+  # use for git hooks, and the pre-push gate is exactly what this workflow is.
+  HUSKY: 0
+
+jobs:
+  quality:
+    name: Lint, format, types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run format:check
+
+      - run: npm run typecheck
+
+  test:
+    name: Tests (MongoDB 8)
+    runs-on: ubuntu-latest
+
+    # The repository, integration and e2e suites need a real server: an
+    # in-memory fake would not exercise collations, multikey indexes or
+    # bulkWrite semantics. Same major version as docker-compose.
+    services:
+      mongo:
+        image: mongo:8
+        ports:
+          - 27017:27017
+
+    env:
+      MONGODB_URI: mongodb://localhost:27017
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # The database-backed suites skip themselves when nothing answers, so a
+      # container that is slow to accept connections would quietly turn 55
+      # integration and e2e tests into a green no-op. Fail here, loudly, rather
+      # than let the suite hide it.
+      - name: Wait for MongoDB
+        run: |
+          node --input-type=module -e '
+            import { MongoClient } from "mongodb";
+
+            for (let attempt = 1; attempt <= 30; attempt += 1) {
+              const client = new MongoClient(process.env.MONGODB_URI, {
+                serverSelectionTimeoutMS: 2000,
+              });
+              try {
+                await client.connect();
+                await client.db("admin").command({ ping: 1 });
+                console.log(`MongoDB answered on attempt ${attempt}`);
+                process.exit(0);
+              } catch {
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+              } finally {
+                await client.close().catch(() => undefined);
+              }
+            }
+
+            console.error("MongoDB never became reachable: refusing to run a suite that would silently skip its database tests");
+            process.exit(1);
+          '
+
+      - run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  build:
+    name: Build dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Check the entrypoints were emitted
+        run: test -f dist/main.js && test -f dist/cli/ingest.js
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: cars-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Building only proves it compiles. This proves the shipped artefact boots
+      # as the unprivileged user, reaches MongoDB and serves a real GraphQL
+      # query through the repository — the parts a Dockerfile typo breaks.
+      - name: Boot the image and query it
+        run: |
+          docker network create cars-ci
+          docker run -d --name mongo --network cars-ci mongo:8
+
+          for attempt in $(seq 1 30); do
+            if docker exec mongo mongosh --quiet --eval 'db.adminCommand("ping").ok' >/dev/null 2>&1; then
+              mongo_ready=1
+              break
+            fi
+            sleep 2
+          done
+          [ "${mongo_ready:-}" = 1 ] || { echo "MongoDB never came up"; exit 1; }
+
+          docker run -d --name api --network cars-ci -p 4000:4000 \
+            -e MONGODB_URI=mongodb://mongo:27017 \
+            -e MONGODB_DB_NAME=cars_ci \
+            -e GRAPHQL_INTROSPECTION=false \
+            cars-api:ci
+
+          # /health/ready runs the datastore probe, so a 200 means the container
+          # reached MongoDB — not merely that Node started.
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:4000/health/ready >/dev/null; then
+              api_ready=1
+              break
+            fi
+            sleep 2
+          done
+          [ "${api_ready:-}" = 1 ] || { echo "API never became ready"; exit 1; }
+
+          curl -fsS -X POST http://localhost:4000/graphql \
+            -H 'content-type: application/json' \
+            -d '{"query":"{ makes(limit: 1) { totalCount items { makeId } } }"}' \
+            | tee response.json
+
+          # Apollo answers 200 even for a failed operation, so assert the data:
+          # an empty catalogue is the correct answer against a fresh database.
+          grep -q '"totalCount":0' response.json
+
+      - name: Container logs
+        if: failure()
+        run: |
+          docker logs api || true
+          docker logs mongo || true
+
+      - name: Export the image
+        run: docker save cars-api:ci | gzip > cars-api-image.tar.gz
+
+      - name: Upload the image
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: cars-api-image.tar.gz
+          retention-days: 7
